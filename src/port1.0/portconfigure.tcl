@@ -849,7 +849,7 @@ proc portconfigure::max_version {verA verB} {
 #| 1998 (C++98) |     -     |       -       |     -     |     -     |
 #| 2011 (C++11) |    3.3    |   500.2.75    |    5.0    |   4.8.1   |
 #| 2014 (C++14) |    3.4    |   602.0.49    |    6.3    |     5     |
-#| 2017 (C++17) |    5.0    |   902.0.39.1  |    9.3    |     7     |
+#| 2017 (C++17) |    5.0    |  1000.11.45.2 |   10.0    |     7     |
 #--------------------------------------------------------------------
 #
 # https://openmp.llvm.org
@@ -909,7 +909,7 @@ proc portconfigure::get_min_command_line {compiler} {
                 set min_value [max_version $min_value 500.2.75]
             }
             if {${compiler.cxx_standard} >= 2017} {
-                set min_value [max_version $min_value 902.0.39.1]
+                set min_value [max_version $min_value 1000.11.45.2]
             } elseif {${compiler.cxx_standard} >= 2014} {
                 set min_value [max_version $min_value 602.0.49]
             } elseif {${compiler.cxx_standard} >= 2011} {
@@ -1770,9 +1770,11 @@ proc portconfigure::configure_main {args} {
 
         # Execute the command (with the new environment).
         if {[catch {command_exec {*}${callback} configure} result]} {
-            global configure.dir
-            if {[file exists ${configure.dir}/config.log]} {
-                ui_error "[format [msgcat::mc "Failed to configure %s, consult %s/config.log"] [option subport] ${configure.dir}]"
+            global configure.dir build.dir
+            foreach error_log [list ${configure.dir}/config.log ${configure.dir}/CMakeFiles/CMakeError.log ${build.dir}/meson-logs/meson-log.txt] {
+                if {[file exists ${error_log}]} {
+                    ui_error "[format [msgcat::mc "Failed to configure %s: consult %s"] [option subport] ${error_log}]"
+                }
             }
             return -code error "[format [msgcat::mc "%s failure: %s"] configure $result]"
         }
@@ -1787,21 +1789,21 @@ default configure.checks.implicit_function_declaration.whitelist {[portconfigure
 
 proc portconfigure::check_implicit_function_declarations {} {
     global \
-        configure.dir \
+        workpath \
         configure.checks.implicit_function_declaration.whitelist
 
     # Map from function name to config.log that used it without declaration
     array set undeclared_functions {}
 
-    fs-traverse -tails file [list ${configure.dir}] {
-        if {[file tail $file] eq "config.log" && [file isfile [file join ${configure.dir} $file]]} {
+    fs-traverse -tails file [list ${workpath}] {
+        if {[file tail $file] in [list config.log CMakeError.log meson-log.txt] && [file isfile [file join ${workpath} $file]]} {
             # We could do the searching ourselves, but using a tool optimized for this purpose is likely much faster
             # than using Tcl.
             #
             # Using /usr/bin/fgrep here, so we don't accidentally pick up a macports-installed grep which might
             # currently not be runnable due to a missing library.
             set args [list "/usr/bin/fgrep" "--" "-Wimplicit-function-declaration"]
-            lappend args [file join ${configure.dir} $file]
+            lappend args [file join ${workpath} $file]
 
             if {![catch {set result [exec -- {*}$args]}]} {
                 foreach line [split $result "\n"] {
