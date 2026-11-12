@@ -36,8 +36,10 @@
 #endif
 
 #ifndef __APPLE__
-/* required for fdopen(3)/seteuid(2), among others */
-#define _XOPEN_SOURCE 600
+/* required for fdopen(3)/seteuid(2)/getline(3), among others */
+#define _XOPEN_SOURCE 700
+/* initgroups() */
+#define _DEFAULT_SOURCE
 #endif
 
 #include <tcl.h>
@@ -46,18 +48,21 @@
 #include <paths.h>
 #endif
 
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <sys/resource.h>
 #include <assert.h>
+#include <errno.h>
 #include <fcntl.h>
+#include <grp.h>
+#include <limits.h>
+#include <pwd.h>
+#include <signal.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
-#include <limits.h>
-#include <errno.h>
-#include <signal.h>
 
 #include "system.h"
 #include "Pextlib.h"
@@ -119,19 +124,19 @@ static int check_sandboxing(Tcl_Interp *interp, char **sandbox_exec_path, char *
 {
     Tcl_Obj *tcl_result;
     int active;
-    int len;
+    Tcl_Size len;
 
-    tcl_result = Tcl_GetVar2Ex(interp, "portsandbox_active", NULL, TCL_GLOBAL_ONLY);
+    tcl_result = Tcl_GetVar2Ex(interp, "::portsandbox_active", NULL, TCL_GLOBAL_ONLY);
     if (!tcl_result || Tcl_GetBooleanFromObj(interp, tcl_result, &active) != TCL_OK || !active) {
         return 0;
     }
 
-    tcl_result = Tcl_GetVar2Ex(interp, "portutil::autoconf::sandbox_exec_path", NULL, TCL_GLOBAL_ONLY);
+    tcl_result = Tcl_GetVar2Ex(interp, "::portutil::autoconf::sandbox_exec_path", NULL, TCL_GLOBAL_ONLY);
     if (!tcl_result || !(*sandbox_exec_path = Tcl_GetString(tcl_result))) {
         return 0;
     }
 
-    tcl_result = Tcl_GetVar2Ex(interp, "portsandbox_profile", NULL, TCL_GLOBAL_ONLY);
+    tcl_result = Tcl_GetVar2Ex(interp, "::portsandbox_profile", NULL, TCL_GLOBAL_ONLY);
     if (!tcl_result || !(*profilestr = Tcl_GetStringFromObj(tcl_result, &len)) 
         || len == 0) {
         return 0;
@@ -188,10 +193,10 @@ static int SystemCmd_Callback_Append(SystemCmd_Callback *cb, Tcl_Obj *callbackPr
     return Tcl_ListObjAppendElement(cb->interp, cb->procs, callbackProc);
 }
 
-static int SystemCmd_Callback_NumProcs(SystemCmd_Callback *cb)
+static Tcl_Size SystemCmd_Callback_NumProcs(SystemCmd_Callback *cb)
 {
     int status;
-    int len;
+    Tcl_Size len;
 
     if ((status = Tcl_ListObjLength(cb->interp, cb->procs, &len)) != TCL_OK) {
         /* We allocate this explicitly as a list; the type should not change */
@@ -218,10 +223,10 @@ static void SystemCmd_Callback_SetPid(SystemCmd_Callback *cb, pid_t pid)
 static int SystemCmd_Callback_Invoke(SystemCmd_Callback *cb, Tcl_Obj *event)
 {
     Tcl_Obj **procs;
-    int numProcs;
+    Tcl_Size numProcs;
 
     Tcl_ListObjGetElements(cb->interp, cb->procs, &numProcs, &procs);
-    for (int i = 0; i < numProcs; i++) {
+    for (Tcl_Size i = 0; i < numProcs; i++) {
         Tcl_Obj *objv[] = { procs[i], event };
         int status;
 
@@ -284,7 +289,7 @@ static void handle_sigint(int s) {
 }
 
 /* usage: system ?-callback proc? ?-notty? ?-nodup? ?-nice value? ?-W path? command */
-int SystemCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[])
+int SystemCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
     char *args[7];
     char *cmdstring;
@@ -441,7 +446,8 @@ int SystemCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Ob
         /* drop privileges entirely for child */
         if (getuid() == 0 && (euid = geteuid()) != 0) {
             gid_t egid = getegid();
-            if (seteuid(0) || setgid(egid) || setuid(euid)) {
+            struct passwd *pwent = getpwuid(euid);
+            if (!pwent || seteuid(0) || setgid(egid) || initgroups(pwent->pw_name, egid) || setuid(euid)) {
                 _exit(1);
             }
         }
@@ -608,7 +614,7 @@ int SystemCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Ob
                 if (event != NULL)
                     SystemCmd_Event_SetSignaled(callback, event, interrupted_by);
 
-                /* set errorCode [list POSIX SIG <SIGNAME> <signal descripton>] */
+                /* set errorCode [list POSIX SIG <SIGNAME> <signal description>] */
                 Tcl_ListObjAppendElement(interp, errorCode, Tcl_NewStringObj("POSIX", -1));
                 Tcl_ListObjAppendElement(interp, errorCode, Tcl_NewStringObj("SIG", -1));
                 Tcl_ListObjAppendElement(interp, errorCode, Tcl_NewStringObj(Tcl_SignalId(interrupted_by), -1));
@@ -626,7 +632,7 @@ int SystemCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Ob
                 if (event != NULL)
                     SystemCmd_Event_SetSignaled(callback, event, WTERMSIG(ret));
 
-                /* set errorCode [list CHILDKILLED <pid> <SIGNAME> <signal descripton>] */
+                /* set errorCode [list CHILDKILLED <pid> <SIGNAME> <signal description>] */
                 Tcl_ListObjAppendElement(interp, errorCode, Tcl_NewStringObj("CHILDKILLED", -1));
                 Tcl_ListObjAppendElement(interp, errorCode, Tcl_NewWideIntObj(pid));
                 Tcl_ListObjAppendElement(interp, errorCode, Tcl_NewStringObj(Tcl_SignalId(WTERMSIG(ret)), -1));

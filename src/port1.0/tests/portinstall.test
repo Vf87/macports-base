@@ -6,17 +6,12 @@ namespace import tcltest::*
 set pwd [file dirname [file normalize $argv0]]
 
 source ../port_test_autoconf.tcl
-package require macports 1.0
+source $macports::autoconf::top_srcdir/src/macports1.0/tests/test_setup.tcl
 
-array set ui_options {}
-#set ui_options(ports_debug)   yes
-#set ui_options(ports_verbose) yes
-mportinit ui_options
-
+package require portutil
 package require portinstall 1.0
 source ../../registry2.0/portuninstall.tcl
 source ../port_autoconf.tcl
-source ./library.tcl
 macports_worker_init
 
 
@@ -30,9 +25,9 @@ set supported_archs {}
 set configure.build_arch build_arch
 set portarchivetype tgz
 
-set subport gcc_select
-set version 0.1
-set revision 4
+set subport emptyport
+set version 0.2
+set revision 0
 
 
 test install_start {
@@ -71,7 +66,7 @@ test create_archive {
     set workername [ditem_key $mport workername]
 
     # run destroot
-    if {[$workername eval eval_targets destroot] != 0} {
+    if {[$workername eval [list eval_targets destroot]] != 0} {
         return "FAIL: destroot failed"
     }
 
@@ -83,21 +78,21 @@ test create_archive {
     set macports::channels(msg)    {}
     set macports::channels(notice) {}
 
-    if {[$workername eval eval_targets install] != 0} {
+    if {[$workername eval [list eval_targets install]] != 0} {
         return "FAIL: port install failed"
     }
 
 } -body {
-    if {[catch {$workername eval portinstall::create_archive $create tgz}] != 0} {
+    if {[catch {$workername eval [list portinstall::create_archive $create tgz]}] != 0} {
         return "FAIL: cannot create archive"
     }
     return "Create archive successful."
 
 } -cleanup {
-    if {[$workername eval eval_targets uninstall] != 0} {
+    if {[$workername eval [list eval_targets uninstall]] != 0} {
         return "FAIL: uninstall failed"
     }
-    if {[$workername eval eval_targets clean] != 0} {
+    if {[$workername eval [list eval_targets clean]] != 0} {
         return "FAIL: clean failed"
     }
     array set macports::channels $oldchannels
@@ -143,7 +138,7 @@ test install_main {
     set workername [ditem_key $mport workername]
 
     # run destroot
-    if {[$workername eval eval_targets destroot] != 0} {
+    if {[$workername eval [list eval_targets destroot]] != 0} {
         return "FAIL: destroot failed"
     }
 
@@ -156,16 +151,16 @@ test install_main {
     set macports::channels(notice) {}
 
 } -body {
-    if {[$workername eval eval_targets install] != 0} {
+    if {[$workername eval [list eval_targets install]] != 0} {
         return "FAIL: cannot install port"
     }
     return "Install main successful."
 
 } -cleanup {
-    if {[$workername eval eval_targets uninstall] != 0} {
+    if {[$workername eval [list eval_targets uninstall]] != 0} {
         return "FAIL: uninstall failed"
     }
-    if {[$workername eval eval_targets clean] != 0} {
+    if {[$workername eval [list eval_targets clean]] != 0} {
         return "FAIL: clean failed"
     }
     array set macports::channels $oldchannels

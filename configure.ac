@@ -28,11 +28,10 @@ if test "x$SW_VERS" != "x"; then
 fi
 
 case "$MACOSX_VERSION" in
-  10.0|10.0.*|10.1|10.1.*|10.2|10.2.*|10.3|10.3.*)
-    AC_MSG_ERROR([This version of Mac OS X is not supported
-                  Please upgrade at http://store.apple.com/])
+  10.[[0-4]]|10.[[0-4]].*)
+    AC_MSG_ERROR([MacPorts requires Mac OS X 10.5 or later.])
     ;;
-  10.4|10.4.[[1-9]]|10.4.10|10.5|10.5.[[1-7]]|10.6|10.6.[[1-7]]|10.7|10.7.[[1-4]])
+  10.5|10.5.[[1-7]]|10.6|10.6.[[1-7]]|10.7|10.7.[[1-4]])
     AC_MSG_WARN([This version of Mac OS X is out of date])
     AC_MSG_WARN([Please run Software Update to update it])
     ;;
@@ -103,9 +102,19 @@ esac
 
 # Checks for programs.
 AC_PROG_CC([clang cc gcc])
+# Remove automatically added C standard option
+AC_MSG_CHECKING([CC without -std])
+[CC=$(echo "$CC" | sed -E "s/[[:space:]]+-std=(gnu|c)$(echo "$ac_prog_cc_stdc" | tr -d c)//")]
+AC_MSG_RESULT([$CC])
+AC_PROG_GREP
 AC_PROG_INSTALL
 AC_PROG_LN_S
 AC_PROG_MAKE_SET
+
+# Save this for use at runtime. We may use a different install program
+# to install our own files.
+SYSTEM_INSTALL="$INSTALL"
+AC_SUBST(SYSTEM_INSTALL)
 
 # Check for user-supplied paths before searching
 
@@ -117,6 +126,7 @@ dnl named with a _BIN suffix here.
 MP_TOOL_PATH(BSDMAKE, [bsdmake/pmake])
 MP_TOOL_PATH(BZIP2_BIN, [bzip2])
 MP_TOOL_PATH(CVS, [cvs])
+MP_TOOL_PATH(GIT, [git])
 MP_TOOL_PATH(GNUMAKE, [gnumake])
 MP_TOOL_PATH(GNUTAR, [gnutar])
 MP_TOOL_PATH(LZMA, [lzma])
@@ -132,6 +142,7 @@ MP_TOOL_PATH(XAR, [xar])
 MP_TOOL_PATH(XZ, [xz])
 
 # Search for tool paths. Any set above (via --with-pkg=PATH) will be retained
+AC_PATH_PROG(AA, [aa], [])
 AC_PATH_PROGS(BSDMAKE, [bsdmake pmake], [])
 AC_PATH_PROG(BZIP2_BIN, [bzip2], [])
 AC_PATH_PROG(BZR, [bzr], [])
@@ -183,6 +194,7 @@ if test "x$MTREE" = "x"; then
 fi
 
 MP_TAR_FAST_READ
+MP_TAR_KEEP_OLD
 MP_TAR_NO_SAME_OWNER
 MP_PATCH_GNU_VERSION
 
@@ -198,8 +210,6 @@ MP_WERROR
 MP_COMPILER_ATTRIBUTE_UNUSED
 
 MP_PROG_DAEMONDO
-
-AC_SUBST(EXTRA_PROGS)
 
 # Check for paths
 AC_PREFIX_DEFAULT(/opt/local)
@@ -218,6 +228,7 @@ MP_PATH_MPCONFIGDIR
 
 # Check whether to install without root privileges
 MP_CHECK_NOROOTPRIVILEGES
+AC_SUBST(NO_ROOTPRIVS)
 
 # Check for install ownership
 MP_CHECK_INSTALLUSER
@@ -225,6 +236,18 @@ MP_CHECK_INSTALLGROUP
 MP_CHECK_RUNUSER
 MP_DIRECTORY_MODE
 MP_SHARED_DIRECTORY
+
+# Don't set real uname or gname in .mtree files unless root
+# https://trac.macports.org/ticket/49501
+if test "$DSTUSR" = "root" ; then
+    MTREE_GNAME="$DSTGRP"
+else
+    # This has to be set to something or mtree won't create any directories.
+    # It doesn't matter what it's set to for non-root though, as it can't
+    # change the ownership anyway.
+    MTREE_GNAME="admin"
+fi
+AC_SUBST(MTREE_GNAME)
 
 # Check for default directories
 MP_PATH_APPLICATIONS
@@ -235,15 +258,35 @@ MP_CHECK_STARTUPITEMS
 MP_UNIVERSAL_OPTIONS
 
 # Check for standard header files.
-AC_CHECK_HEADERS([crt_externs.h err.h fcntl.h libkern/OSAtomic.h libproc.h limits.h paths.h pwd.h \
-	readline/history.h readline/readline.h stdatomic.h spawn.h sys/cdefs.h sys/event.h \
-	sys/fcntl.h sys/file.h sys/paths.h sys/socket.h sys/sysctl.h utime.h])
+AC_CHECK_HEADERS([crt_externs.h err.h fcntl.h libkern/OSAtomic.h libproc.h \
+    limits.h paths.h pwd.h readpassphrase.h readline/history.h \
+    readline/readline.h stdatomic.h spawn.h sys/attr.h sys/cdefs.h \
+    sys/clonefile.h sys/event.h sys/fcntl.h sys/file.h sys/paths.h \
+    sys/socket.h sys/sysctl.h utime.h])
+
+AC_CHECK_DECLS([RPP_STDIN], [], [], [[#include <readpassphrase.h>]])
+AC_SUBST(HAVE_DECL_RPP_STDIN, $ac_cv_have_decl_RPP_STDIN)
 
 # Checks for library functions.
 AC_CHECK_FUNCS([OSAtomicCompareAndSwap32 OSAtomicCompareAndSwap64 \
-	OSAtomicCompareAndSwapPtr __getdirentries64 clearenv copyfile \
-	_dyld_shared_cache_contains_path flock fls kqueue posix_spawn setmode \
-	sysctlbyname])
+	OSAtomicCompareAndSwapPtr __getdirentries64 arc4random_buf clearenv \
+	clonefile copyfile _dyld_shared_cache_contains_path flock \
+	getentropy kqueue posix_spawn setmode sysctlbyname timingsafe_bcmp])
+
+# For vendor/signify
+AC_SUBST(HAVE_ARC4RANDOM_BUF, $ac_cv_func_arc4random_buf)
+AC_SUBST(HAVE_GETENTROPY, $ac_cv_func_getentropy)
+AC_SUBST(HAVE_TIMINGSAFE_BCMP, $ac_cv_func_timingsafe_bcmp)
+
+# For vendor/install
+AC_CHECK_DECLS([CLONE_NOOWNERCOPY], [], [], [[#include <sys/clonefile.h>]])
+AC_SUBST(HAVE_CLONEFILE, $ac_cv_func_clonefile)
+AC_SUBST(HAVE_DECL_CLONE_NOOWNERCOPY, $ac_cv_have_decl_CLONE_NOOWNERCOPY)
+if test x$ac_cv_func_clonefile = xyes -a x$ac_cv_have_decl_CLONE_NOOWNERCOPY = xyes; then
+AC_CONFIG_FILES([vendor/install/Makefile])
+# If we build it, also use to install our own files.
+INSTALL="`(cd vendor; pwd)`/install/build/install"
+fi
 
 # Check for library functions, replacements are in pextlib1.0/compat/
 AC_CHECK_FUNCS([getline getdelim strlcat strlcpy])
@@ -256,6 +299,119 @@ AC_CHECK_DECLS([atomic_compare_exchange_strong_explicit], [], [], [[#include <st
 
 # Check for md5 implementation
 AC_CHECK_HEADER([CommonCrypto/CommonDigest.h], [AC_DEFINE([HAVE_COMMONCRYPTO_COMMONDIGEST_H], [1], [Define if CommonCrypto is available.])], [MP_LIB_MD5])
+
+AC_ARG_ENABLE([blake3-simd],
+    AS_HELP_STRING([--disable-blake3-simd],[disable BLAKE3 SIMD acceleration and use the portable C backend]),
+    [enable_blake3_simd=$enableval],
+    [enable_blake3_simd=yes])
+
+# BLAKE3 SIMD support - determine which architecture-specific sources to build
+BLAKE3_OBJS="blake3/blake3.o blake3/blake3_dispatch.o blake3/blake3_portable.o"
+case "$host_cpu" in
+    x86_64)
+        if test "x$enable_blake3_simd" = "xno"; then
+            AC_DEFINE([BLAKE3_NO_SSE2], [1], [Disable BLAKE3 SSE2 support.])
+            AC_DEFINE([BLAKE3_NO_SSE41], [1], [Disable BLAKE3 SSE41 support.])
+            AC_DEFINE([BLAKE3_NO_AVX2], [1], [Disable BLAKE3 AVX2 support.])
+            AC_DEFINE([BLAKE3_NO_AVX512], [1], [Disable BLAKE3 AVX512 support.])
+            AC_MSG_CHECKING([for BLAKE3 SIMD support])
+            AC_MSG_RESULT([portable C (SIMD disabled)])
+        else
+            blake3_x86_simd=
+
+            AC_CACHE_CHECK([whether the assembler supports BLAKE3 SSE2 sources], [mp_cv_blake3_sse2_asm], [
+                rm -f conftest*
+                if ${CC} -c ${CPPFLAGS} ${CFLAGS} "${srcdir}/src/pextlib1.0/blake3/src/blake3_sse2_x86-64_unix.S" -o conftest.o >/dev/null 2>&1; then
+                    mp_cv_blake3_sse2_asm=yes
+                else
+                    mp_cv_blake3_sse2_asm=no
+                fi
+                rm -f conftest*
+            ])
+            if test "x$mp_cv_blake3_sse2_asm" = "xyes"; then
+                BLAKE3_OBJS="$BLAKE3_OBJS blake3/blake3_sse2_x86-64_unix.o"
+                blake3_x86_simd="${blake3_x86_simd}SSE2/"
+            else
+                AC_DEFINE([BLAKE3_NO_SSE2], [1], [Disable BLAKE3 SSE2 support.])
+            fi
+
+            AC_CACHE_CHECK([whether the assembler supports BLAKE3 SSE4.1 sources], [mp_cv_blake3_sse41_asm], [
+                rm -f conftest*
+                if ${CC} -c ${CPPFLAGS} ${CFLAGS} "${srcdir}/src/pextlib1.0/blake3/src/blake3_sse41_x86-64_unix.S" -o conftest.o >/dev/null 2>&1; then
+                    mp_cv_blake3_sse41_asm=yes
+                else
+                    mp_cv_blake3_sse41_asm=no
+                fi
+                rm -f conftest*
+            ])
+            if test "x$mp_cv_blake3_sse41_asm" = "xyes"; then
+                BLAKE3_OBJS="$BLAKE3_OBJS blake3/blake3_sse41_x86-64_unix.o"
+                blake3_x86_simd="${blake3_x86_simd}SSE41/"
+            else
+                AC_DEFINE([BLAKE3_NO_SSE41], [1], [Disable BLAKE3 SSE41 support.])
+            fi
+
+            AC_CACHE_CHECK([whether the assembler supports BLAKE3 AVX2 sources], [mp_cv_blake3_avx2_asm], [
+                rm -f conftest*
+                if ${CC} -c ${CPPFLAGS} ${CFLAGS} "${srcdir}/src/pextlib1.0/blake3/src/blake3_avx2_x86-64_unix.S" -o conftest.o >/dev/null 2>&1; then
+                    mp_cv_blake3_avx2_asm=yes
+                else
+                    mp_cv_blake3_avx2_asm=no
+                fi
+                rm -f conftest*
+            ])
+            if test "x$mp_cv_blake3_avx2_asm" = "xyes"; then
+                BLAKE3_OBJS="$BLAKE3_OBJS blake3/blake3_avx2_x86-64_unix.o"
+                blake3_x86_simd="${blake3_x86_simd}AVX2/"
+            else
+                AC_DEFINE([BLAKE3_NO_AVX2], [1], [Disable BLAKE3 AVX2 support.])
+            fi
+
+            AC_CACHE_CHECK([whether the assembler supports BLAKE3 AVX512 sources], [mp_cv_blake3_avx512_asm], [
+                rm -f conftest*
+                if ${CC} -c ${CPPFLAGS} ${CFLAGS} "${srcdir}/src/pextlib1.0/blake3/src/blake3_avx512_x86-64_unix.S" -o conftest.o >/dev/null 2>&1; then
+                    mp_cv_blake3_avx512_asm=yes
+                else
+                    mp_cv_blake3_avx512_asm=no
+                fi
+                rm -f conftest*
+            ])
+            if test "x$mp_cv_blake3_avx512_asm" = "xyes"; then
+                BLAKE3_OBJS="$BLAKE3_OBJS blake3/blake3_avx512_x86-64_unix.o"
+                blake3_x86_simd="${blake3_x86_simd}AVX512"
+            else
+                AC_DEFINE([BLAKE3_NO_AVX512], [1], [Disable BLAKE3 AVX512 support.])
+            fi
+
+            AC_MSG_CHECKING([for BLAKE3 SIMD support])
+            if test -n "$blake3_x86_simd"; then
+                blake3_x86_simd=`echo "$blake3_x86_simd" | sed 's:/$::'`
+                AC_MSG_RESULT([x86-64 assembly (${blake3_x86_simd})])
+            else
+                AC_MSG_RESULT([portable C (no supported x86-64 assembly)])
+            fi
+        fi
+        ;;
+    aarch64|arm64)
+        AC_MSG_CHECKING([for BLAKE3 SIMD support])
+        if test "x$enable_blake3_simd" = "xno"; then
+            AC_DEFINE([BLAKE3_USE_NEON], [0], [Disable BLAKE3 NEON support.])
+            AC_MSG_RESULT([portable C (SIMD disabled)])
+        else
+            BLAKE3_OBJS="$BLAKE3_OBJS blake3/blake3_neon.o"
+            AC_MSG_RESULT([ARM NEON])
+        fi
+        ;;
+    *)
+        AC_DEFINE([BLAKE3_NO_SSE2], [1], [Disable BLAKE3 SSE2 support.])
+        AC_DEFINE([BLAKE3_NO_SSE41], [1], [Disable BLAKE3 SSE41 support.])
+        AC_DEFINE([BLAKE3_NO_AVX2], [1], [Disable BLAKE3 AVX2 support.])
+        AC_DEFINE([BLAKE3_NO_AVX512], [1], [Disable BLAKE3 AVX512 support.])
+        AC_MSG_CHECKING([for BLAKE3 SIMD support])
+        AC_MSG_RESULT([portable C])
+        ;;
+esac
+AC_SUBST(BLAKE3_OBJS)
 
 # Check for readline
 AC_ARG_ENABLE(readline, AS_HELP_STRING([--enable-readline],[enable readline support, if readline present]),
@@ -282,17 +438,15 @@ AC_DEFINE([MIN_USABLE_GID], [501], [Lowest non-system-reserved GID.])
 # Substitute platform for base compatibility check
 MP_PLATFORM
 
+# For programs/cp - the -c option was added in 10.13
+if test "$OS_PLATFORM" = darwin -a "$OS_MAJOR" -ge 17; then
+EXTRA_PROGS="$EXTRA_PROGS cp"
+AC_CONFIG_FILES([src/programs/cp/Makefile])
+fi
+AC_SUBST(EXTRA_PROGS)
+
 ## libcurl
 MP_LIBCURL_FLAGS
-
-## sqlite3
-MP_SQLITE3_FLAGS
-
-MP_CHECK_SQLITE_VERSION
-AC_DEFINE_UNQUOTED([MP_SQLITE_VERSION], [$mp_sqlite_version], [SQLite version found])
-if test "$mp_sqlite_version" -lt 3003011; then
-	AC_DEFINE([sqlite3_prepare_v2], [sqlite3_prepare], [define sqlite3_prepare to sqlite_prepare_v2 if the latter is not available])
-fi
 
 # check whether trace mode is supported on this platform
 MP_TRACEMODE_SUPPORT
@@ -332,25 +486,21 @@ eval "macports_libexec_dir=$macports_libexec_dir"
 prefix=$oldprefix
 exec_prefix=$oldexec_prefix
 
+if test x$ac_cv_func_clonefile = xyes; then
+    CLONEBIN_PATH="${macports_libexec_dir}/clonebin"
+fi
+AC_SUBST(CLONEBIN_PATH)
+
 ## Tcl package
-MP_CONFIG_SUBDIR([vendor/tcl/unix], [--prefix=${macports_libexec_dir} --enable-threads])
+MP_CONFIG_SUBDIR([vendor/tcl/unix], [--prefix=${macports_libexec_dir} --disable-corefoundation])
 VENDOR_TCL_SUBDIR=tcl/unix
-VENDOR_TCL_INSTALL="install-binaries install-libraries"
+VENDOR_TCL_INSTALL="install-binaries install-headers install-libraries install-msgs install-packages"
 AC_SUBST(VENDOR_TCL_SUBDIR)
 AC_SUBST(VENDOR_TCL_INSTALL)
 
 # Set up some variables needed by MacPorts' Tcl setup
 VENDOR_DESTROOT=vendor/vendor-destroot
 AC_SUBST(VENDOR_DESTROOT)
-
-## Tcl Thread package
-# Tcl supports Threads internally, but to use threads from Tcl code we need
-# this package
-MP_CONFIG_SUBDIR([vendor/thread], [--prefix=${macports_libexec_dir}])
-VENDOR_TCLTHREAD_SUBDIR=thread
-VENDOR_TCLTHREAD_INSTALL="install-binaries install-libraries"
-AC_SUBST(VENDOR_TCLTHREAD_SUBDIR)
-AC_SUBST(VENDOR_TCLTHREAD_INSTALL)
 
 ## TclX package
 # TclX is required for signal handling
@@ -359,6 +509,19 @@ VENDOR_TCLX_SUBDIR=tclx
 VENDOR_TCLX_INSTALL="install-binaries install-libraries"
 AC_SUBST(VENDOR_TCLX_SUBDIR)
 AC_SUBST(VENDOR_TCLX_INSTALL)
+
+## critcl package
+CRITCL_PLATFORMS="$(echo "$CFLAGS" | awk '{for (I=1;I<NF;I++) if ($I == "-arch") print "macosx-"$(I+1)}')"
+if test "$CRITCL_PLATFORMS" = "" -a "$OS_PLATFORM" = darwin; then
+    CRITCL_PLATFORMS=macosx-$host_cpu
+fi
+CRITCL_PLATFORMS="$(echo "$CRITCL_PLATFORMS" | \
+    sed -E -e 's/macosx-a(rm|arch)64/macosx-aarch64 macosx-arm macosx-arm64 macos-aarch64 macos-arm macos-arm64/' \
+        -e 's/macosx-x86_64/macosx-x86_64 macos-x86_64/'
+        -e 's/macosx-i[[3-6]]86/macosx-ix86/' \
+        -e 's/macosx-ppc/macosx-powerpc/' \
+        | tr '\n' ' ')"
+AC_SUBST(CRITCL_PLATFORMS)
 
 ## Tcllib package
 # Note that Tcllib needs a Tcl interpreter during installation; it will *not*
@@ -384,8 +547,8 @@ SHLIB_CFLAGS=${TCL_SHLIB_CFLAGS}
 SHLIB_SUFFIX=${TCL_SHLIB_SUFFIX}
 TCLSH=${TCL_EXEC_PREFIX}/bin/tclsh${TCL_VERSION}
 INTREE_TCLSH=`(cd vendor; pwd)`/tclsh
-# strip possible whitespace at the end of TCL_PACKAGE_PATH
-eval "TCL_PACKAGE_PATH=${TCL_PACKAGE_PATH}"
+TEST_TCLSH=`(cd tests; pwd)`/test-tclsh
+TCL_PACKAGE_PATH="$macports_libexec_dir/lib"
 
 AC_SUBST(SHLIB_LD)
 AC_SUBST(STLIB_LD)
@@ -399,9 +562,16 @@ AC_SUBST(TCL_SRC_DIR)
 AC_SUBST(TCL_BIN_DIR)
 AC_SUBST(TCLSH)
 AC_SUBST(INTREE_TCLSH)
+AC_SUBST(TEST_TCLSH)
 
 INCLUDES="-I.. -I. $INCLUDES"
 AC_SUBST(INCLUDES)
+
+## sqlite3
+SQLITE3_CPPFLAGS=-I`echo ${TCL_SRC_DIR}/pkgs/sqlite3*/compat/sqlite3`
+SQLITE3_LIBNAME=`basename ${TCL_SRC_DIR}/pkgs/sqlite3*`
+AC_SUBST(SQLITE3_CPPFLAGS)
+AC_SUBST(SQLITE3_LIBNAME)
 
 # Check if there's an existing DP/MP install too old to upgrade
 MP_CHECK_OLDLAYOUT
@@ -420,9 +590,10 @@ AC_CONFIG_FILES([
 	portmgr/dmg/postflight
 	setupenv.bash
 	src/Makefile
-	src/cregistry/Makefile
 	src/compat/Makefile
+	src/cregistry/Makefile
 	src/darwintracelib1.0/Makefile
+	src/darwintracelib1.0/tests/Makefile
 	src/machista1.0/Makefile
 	src/macports1.0/Makefile
 	src/macports1.0/macports_autoconf.tcl
@@ -432,20 +603,26 @@ AC_CONFIG_FILES([
 	src/package1.0/package_test_autoconf.tcl
 	src/pextlib1.0/Makefile
 	src/port/Makefile
+	src/port/port-tclsh.c
 	src/port1.0/Makefile
 	src/port1.0/port_autoconf.tcl
 	src/port1.0/port_test_autoconf.tcl
+	src/portlib1.0/Makefile
+	src/portlib1.0/portlib_autoconf.tcl
+	src/portlist1.0/Makefile
 	src/programs/Makefile
 	src/registry2.0/Makefile
 	src/registry2.0/registry_autoconf.tcl
 	tests/Makefile
 	tests/test.tcl
 	tests/test/library.tcl
-	tests/test/trace/test.tcl
 	vendor/Makefile
+	vendor/critcl/lib/critcl/Config
+	vendor/signify-osx/autoconf.mk
 ])
 
 AC_CONFIG_FILES([vendor/tclsh], [chmod +x vendor/tclsh])
+AC_CONFIG_FILES([tests/test-tclsh], [chmod +x tests/test-tclsh])
 AC_CONFIG_FILES([src/cxx_stdlib_overridden.tcl], [chmod +x src/cxx_stdlib_overridden.tcl])
 AC_CONFIG_FILES([src/dedup_portfiles.tcl], [chmod +x src/dedup_portfiles.tcl])
 AC_CONFIG_FILES([src/images_to_archives.tcl], [chmod +x src/images_to_archives.tcl])

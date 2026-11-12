@@ -54,7 +54,7 @@
 
 #include "fs-traverse.h"
 
-static int do_traverse(Tcl_Interp *interp, int flags, char * CONST *targets, Tcl_Obj *varname, Tcl_Obj *body);
+static int do_traverse(Tcl_Interp *interp, int flags, char * const *targets, Tcl_Obj *varname, Tcl_Obj *body);
 
 #define F_DEPTH 0x1
 #define F_IGNORE_ERRORS 0x2
@@ -62,15 +62,15 @@ static int do_traverse(Tcl_Interp *interp, int flags, char * CONST *targets, Tcl
 
 /* fs-traverse ?-depth? ?-ignoreErrors? ?-tails? ?--? varname target-list body */
 int
-FsTraverseCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[])
+FsTraverseCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
     Tcl_Obj *varname;
     Tcl_Obj *body;
     int flags = 0;
     int rval = TCL_OK;
     Tcl_Obj *listPtr;
-    Tcl_Obj *CONST *objv_orig = objv;
-    int lobjc;
+    Tcl_Obj *const *objv_orig = objv;
+    Tcl_Size lobjc;
     Tcl_Obj **lobjv;
 
     /* Adjust arguments to remove command name */
@@ -164,7 +164,7 @@ do_compare(const FTSENT **a, const FTSENT **b)
 }
 
 static int
-do_traverse(Tcl_Interp *interp, int flags, char * CONST *targets, Tcl_Obj *varname, Tcl_Obj *body)
+do_traverse(Tcl_Interp *interp, int flags, char * const *targets, Tcl_Obj *varname, Tcl_Obj *body)
 {
     int rval = TCL_OK;
     FTS *root_fts;
@@ -207,7 +207,7 @@ do_traverse(Tcl_Interp *interp, int flags, char * CONST *targets, Tcl_Obj *varna
             }
             case FTS_F:   /* regular file */
             case FTS_SL:  /* symbolic link */
-            case FTS_SLNONE: /* symbolic link with non-existant target */
+            case FTS_SLNONE: /* symbolic link with non-existent target */
             case FTS_DEFAULT: /* file type not otherwise handled (e.g., fifo) */
             {
                 Tcl_Obj *rpath, *path;
@@ -234,6 +234,7 @@ do_traverse(Tcl_Interp *interp, int flags, char * CONST *targets, Tcl_Obj *varna
                     fts_close(root_fts);
                     return rval;
                 }
+                break;
             }
             case FTS_DC:  /* directory that causes a cycle */
                 break;    /* ignore it */

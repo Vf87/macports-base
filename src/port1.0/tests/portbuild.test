@@ -6,12 +6,7 @@ namespace import tcltest::*
 set pwd [file dirname [file normalize $argv0]]
 
 source ../port_test_autoconf.tcl
-package require macports 1.0
-
-array set ui_options {}
-#set ui_options(ports_debug)   yes
-#set ui_options(ports_verbose) yes
-mportinit ui_options
+source $macports::autoconf::top_srcdir/src/macports1.0/tests/test_setup.tcl
 
 # Provide a stub for the port callback mechanism
 namespace eval port {
@@ -19,6 +14,7 @@ namespace eval port {
     proc run_callbacks {args} {}
 }
 
+package require portutil 1.0
 package require portbuild 1.0
 
 set build_getjobs_fixture_setup {
@@ -33,6 +29,7 @@ set build_getjobs_fixture_setup {
                 }
                 return ${_activecpus}
             }
+            hw.memsize_usable -
             hw.memsize {
                 if {${_memsize_fail}} {
                     error "error requested"
@@ -56,8 +53,10 @@ set build_getjobs_fixture_cleanup {
 test build_getjobs_auto_cpubound {
     Verify that portbuild::build_getjobs correctly computes the number of parallel executors in the CPU-bound case
 } -setup $build_getjobs_fixture_setup -cleanup $build_getjobs_fixture_cleanup -body {
-    global buildmakejobs
+    global buildmakejobs os.major os.platform
 
+    set os.major 25
+    set os.platform darwin
     # Make sure that buildmakejobs is 0 so the auto-detection is being run
     set buildmakejobs 0
     set _activecpus 8

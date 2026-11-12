@@ -15,7 +15,7 @@
  * 3. Neither the name of The MacPorts Project nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -39,8 +39,11 @@
 #include <errno.h>
 #include <sys/types.h>
 
-#if HAVE_SYS_SYSCTL_H
+/* sys/sysctl.h is deprecated on Linux and behaves unexpectedly */
+#if HAVE_SYS_SYSCTL_H && !defined __linux__
 #include <sys/sysctl.h>
+#else
+#include <unistd.h>
 #endif
 
 #include "sysctl.h"
@@ -48,13 +51,9 @@
 /*
  * Read-only wrapper for sysctlbyname(3). Only works for values of type CTLTYPE_INT and CTLTYPE_QUAD.
  */
-#ifdef HAVE_SYSCTLBYNAME
-int SysctlCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[])
-#else
-int SysctlCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc UNUSED, Tcl_Obj *CONST objv[] UNUSED)
-#endif
+int SysctlCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
-#ifdef HAVE_SYSCTLBYNAME
+#if defined HAVE_SYSCTLBYNAME && !defined __linux__
     const char error_message[] = "sysctl failed: ";
     Tcl_Obj *tcl_result;
     int res;
@@ -88,11 +87,41 @@ int SysctlCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc UNUSED,
     } else {
         tcl_result = Tcl_NewIntObj(value);
     }
-    
+
     Tcl_SetObjResult(interp, tcl_result);
     return TCL_OK;
 #else
-    Tcl_SetObjResult(interp, Tcl_NewStringObj("sysctl not available", -1));
-    return TCL_ERROR;
+    char *name;
+    if (objc != 2) {
+        Tcl_WrongNumArgs(interp, 1, objv, "name");
+        return TCL_ERROR;
+    }
+
+    name = Tcl_GetString(objv[1]);
+
+    if (strcmp(name, "hw.activecpu") == 0) {
+        int res = sysconf(_SC_NPROCESSORS_ONLN);
+        if (res < 1)
+        {
+            Tcl_SetObjResult(interp, Tcl_NewStringObj("sysconf not available", -1));
+            return TCL_ERROR;
+        }
+        Tcl_SetObjResult(interp, Tcl_NewIntObj(res));
+        return TCL_OK;
+    } else if (strcmp(name, "hw.memsize") == 0) {
+        long pages = sysconf(_SC_PHYS_PAGES);
+        long page_size = sysconf(_SC_PAGE_SIZE);
+        unsigned long long res = pages * page_size;
+        if (pages < 0 || page_size < 0)
+        {
+            Tcl_SetObjResult(interp, Tcl_NewStringObj("sysconf not available", -1));
+            return TCL_ERROR;
+        }
+        Tcl_SetObjResult(interp, Tcl_NewIntObj(res));
+        return TCL_OK;
+    } else {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("sysctl option not defined", -1));
+        return TCL_ERROR;
+    }
 #endif
 }

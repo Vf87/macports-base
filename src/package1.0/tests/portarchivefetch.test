@@ -6,49 +6,52 @@ namespace import tcltest::*
 set pwd [file dirname [file normalize $argv0]]
 
 source ../package_test_autoconf.tcl
-package require macports 1.0
-
-array set ui_options {}
-#set ui_options(ports_debug)   yes
-#set ui_options(ports_verbose) yes
-mportinit ui_options
-
+source $macports::autoconf::top_srcdir/src/macports1.0/tests/test_setup.tcl
 source ./library.tcl
+
 macports_worker_init
 
+package require portutil 1.0
 package require portarchivefetch 1.0
+package require portarchivefetch_run
 namespace eval portutil {
     namespace eval autoconf {
         variable openssl_path "/usr/bin/openssl"
     }
 }
 
-test filter_sites {
-    Filter sites unit test.
+proc ui_progress_download {args} {
+}
+
+test get_sites {
+    get_sites unit test.
 } -setup {
-    global os.platform os.major os.arch destpath package.destpath configure.build_arch
-    global subport version revision package.flat maintainers description categories
-    global supported_archs name porturl portdbpath portpath workpath distname filespath license
+    global os.platform os.subplatform os.major os.version os.arch destpath package.destpath \
+        configure.build_arch subport version revision package.flat maintainers description \
+        categories supported_archs name porturl portdbpath portpath workpath distname \
+        filespath license platforms
     env_init
 
     set portvariants {var1}
     set porturl http://www.fondu.sourceforge.net/fondu-060102_1var1.darwin_9.noarch.tgz
 
 } -body {
-    if {[portarchivefetch::filter_sites] != "http://www.fondu.sourceforge.net/:tgz"} {
-        return "FAIL: couldn't fetch file"
+    set result [portarchivefetch::get_sites]
+    if {$result ne "http://www.fondu.sourceforge.net/:tgz"} {
+        return "FAIL: portarchivefetch::get_sites returned '$result'"
     }
 
-    return "Filter sites successful."
-} -result "Filter sites successful."
+    return "get_sites successful."
+} -result "get_sites successful."
 
 
 test checkarchivefiles {
     Check archive files unit test.
 } -setup {
-    global os.platform os.major os.arch destpath package.destpath configure.build_arch
-    global subport version revision package.flat maintainers description categories
-    global supported_archs name porturl portdbpath portpath workpath distname filespath license
+    global os.platform os.subplatform os.major os.version os.arch destpath package.destpath \
+        configure.build_arch subport version revision package.flat maintainers \
+        description categories supported_archs name porturl portdbpath portpath \
+        workpath distname filespath license platforms
     env_init
 
     set urls {www.a.com www.b.com}
@@ -60,10 +63,10 @@ test checkarchivefiles {
     if {[catch {portarchivefetch::checkarchivefiles $urls}] != 0} {
         return "FAIL: cannot run checkarchivefiles"
     }
-    if {[lindex $all_archive_files 0] != "fondu-060102_1var1.darwin_9.noarch.zip"} {
+    if {[lindex $all_archive_files 0] ne "fondu-060102_1var1.darwin_9.noarch.zip"} {
         return "FAIL: invalid archive file name"
     }
-    if {[lindex $all_archive_files 1] != "fondu-060102_1var1.darwin_9.noarch.tgz"} {
+    if {[lindex $all_archive_files 1] ne "fondu-060102_1var1.darwin_9.noarch.tgz"} {
         return "FAIL: invalid archive file name"
     }
     return "Check archive files successful."
@@ -79,12 +82,13 @@ test fetchfiles {
 } -constraints {
     root
 } -setup {
-    global os.platform os.major os.arch destpath package.destpath configure.build_arch
-    global subport version revision package.flat maintainers description categories
-    global supported_archs name porturl portdbpath portpath workpath distname filespath license
+    global os.platform os.subplatform os.major os.version os.arch destpath package.destpath \
+        configure.build_arch subport version revision package.flat maintainers description \
+        categories supported_archs name porturl portdbpath portpath workpath distname \
+        filespath license platforms
     env_init
 
-    array set ::portfetch::urlmap {
+    array set portfetch::urlmap {
         db_select http://packages.macports.org/db_select/
     }
     set portarchivefetch::archivefetch_urls {db_select db_select-0.1_3.darwin_14.noarch.tbz2}
@@ -101,6 +105,7 @@ test fetchfiles {
 } -body {
 
     set archivefetch.pubkeys $pwd
+    set portutil::archive_available_result 0
     if {[catch {portarchivefetch::fetchfiles}] != 0} {
         return "FAIL: cannot fetch archive"
     }
@@ -113,7 +118,7 @@ test fetchfiles {
         return "FAIL: cannot fetch archive"
     }
     if {![file exists ${archivefetch.fulldestpath}/db_select-0.1_3.darwin_14.noarch.tbz2]} {
-        return "FAIL: verified archive deleted"
+        return "FAIL: verified archive deleted from ${archivefetch.fulldestpath}"
     }
 
     return "Fetch files successful."

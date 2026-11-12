@@ -6,25 +6,23 @@ namespace import tcltest::*
 set pwd [file dirname [file normalize $argv0]]
 
 source ../port_test_autoconf.tcl
-package require macports 1.0
+source $macports::autoconf::top_srcdir/src/macports1.0/tests/test_setup.tcl
 
-array set ui_options {}
-#set ui_options(ports_debug)   yes
-#set ui_options(ports_verbose) yes
-mportinit ui_options
-
+package require port 1.0
+package require portutil 1.0
 package require portactivate 1.0
+package require portactivate_run 1.0
 package require registry 1.0
-source ./library.tcl
 macports_worker_init
 
 
 set activate_start_fixture_setup {
-    global prefix
+    global prefix prefix_frozen
 
     set _save_prefix ${prefix}
     file mkdir ${pwd}/tmpdir
     set prefix ${pwd}/tmpdir
+    set prefix_frozen ${pwd}/tmpdir
 
     rename getuid _save_getuid
     rename geteuid _save_geteuid
@@ -106,27 +104,27 @@ test activate_main {
     set macports::channels(msg)    {}
     set macports::channels(notice) {}
 
-    if {[$workername eval eval_targets install] != 0} {
+    if {[$workername eval [list eval_targets install]] != 0} {
         return "FAIL: port install failed"
     }
 
 } -body {
-    if {[$workername eval eval_targets activate] != 0} {
+    if {[$workername eval [list eval_targets activate]] != 0} {
         return "FAIL: cannot activate port after install"
     }
-    if {[$workername eval eval_targets deactivate] != 0} {
+    if {[$workername eval [list eval_targets deactivate]] != 0} {
         return "FAIL: cannot deactivate port"
     }
-    if {[$workername eval eval_targets activate] != 0} {
+    if {[$workername eval [list eval_targets activate]] != 0} {
         return "FAIL: cannot activate port after deactivate"
     }
     return "Port activate successful."
 
 } -cleanup {
-    if {[$workername eval eval_targets uninstall] != 0} {
+    if {[$workername eval [list eval_targets uninstall]] != 0} {
         return "FAIL: uninstall failed"
     }
-    if {[$workername eval eval_targets clean] != 0} {
+    if {[$workername eval [list eval_targets clean]] != 0} {
         return "FAIL: clean failed"
     }
     array set macports::channels $oldchannels

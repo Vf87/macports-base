@@ -23,10 +23,17 @@ for f in "$@"; do
         chown "$SUDO_USER" "$f" "$DIR"
     fi
 
-    $SUDO /usr/bin/codesign --sign "$CODESIGN_ID" --identifier=org.macports.base --options=runtime --timestamp --verbose "$f"
-
+    while ! $SUDO /usr/bin/codesign --sign "$CODESIGN_ID" --identifier=org.macports.base --options=runtime --timestamp --verbose "$f"
+    do
+        sleep 1
+    done
     if [ -n "$SUDO" ]; then
         chown "$FILE_OWNER" "$f"
         chown "$DIR_OWNER" "$DIR"
+    fi
+
+    pkgindex=$(dirname "$f")/pkgIndex.tcl
+    if [ -e "$pkgindex" ]; then
+        touch "$pkgindex"
     fi
 done

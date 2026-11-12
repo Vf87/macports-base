@@ -55,9 +55,9 @@ char *cfStringToCStringASCII( CFStringRef cfString );
  * Synopsis: array set someArray get_systemconfiguration_proxies
  */
 #ifdef HAVE_FRAMEWORK_SYSTEMCONFIGURATION
-int GetSystemConfigurationProxiesCmd( ClientData clientData UNUSED, Tcl_Interp *interp, int objc UNUSED, Tcl_Obj *CONST objv[] UNUSED )
+int GetSystemConfigurationProxiesCmd( ClientData clientData UNUSED, Tcl_Interp *interp, int objc UNUSED, Tcl_Obj *const objv[] UNUSED )
 #else
-int GetSystemConfigurationProxiesCmd( ClientData clientData UNUSED, Tcl_Interp *interp UNUSED, int objc UNUSED, Tcl_Obj *CONST objv[] UNUSED )
+int GetSystemConfigurationProxiesCmd( ClientData clientData UNUSED, Tcl_Interp *interp UNUSED, int objc UNUSED, Tcl_Obj *const objv[] UNUSED )
 #endif
 {
     int cmdResult = TCL_OK;
@@ -152,6 +152,8 @@ int appendProxyInformationForKeys( CFDictionaryRef proxies, Tcl_Obj *tclList, co
             }
             else
                 result = -1;
+
+            free( hostname );
         }
         else
             result = -1;

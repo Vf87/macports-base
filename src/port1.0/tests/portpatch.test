@@ -6,16 +6,11 @@ namespace import tcltest::*
 set pwd [file dirname [file normalize $argv0]]
 
 source ../port_test_autoconf.tcl
-package require macports 1.0
+source $macports::autoconf::top_srcdir/src/macports1.0/tests/test_setup.tcl
 
-array set ui_options {}
-#set ui_options(ports_debug)   yes
-#set ui_options(ports_verbose) yes
-mportinit ui_options
-
+package require portutil
 package require portpatch
 source ../port_autoconf.tcl
-source ./library.tcl
 macports_worker_init
 
 
@@ -37,7 +32,7 @@ test patch_main {
 } -setup {
     set macos_version 11.0.1
 
-    set subport gcc_select
+    set subport emptyport
     set filespath $pwd/files
     set distpath $pwd/dist
 
@@ -54,13 +49,13 @@ test patch_main {
 
     set mport [mportopen file://.]
     set workername [ditem_key $mport workername]
-    $workername eval "set patchfiles {file.diff}"
+    $workername eval [list set patchfiles file.diff]
 
 } -body {
-    if {[$workername eval eval_targets patch]} {
+    if {[$workername eval [list eval_targets patch]]} {
         return "FAIL: cannot run patch"
     }
-    if {![file exists $pwd/work/select-0.1/test_patch]} {
+    if {![file exists $pwd/work/emptyport-0.2/test_patch]} {
         return "FAIL: missing patched file"
     }
     return "Patch successful."

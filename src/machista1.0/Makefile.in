@@ -7,6 +7,11 @@ OBJS= 		libmachista.o hashmap.o machista_wrap.o
 SHLIB_NAME= machista${SHLIB_SUFFIX}
 INSTALLDIR=	${TCL_PACKAGE_PATH}/machista1.0
 
+CPPFLAGS+= -I$(srcdir)/../compat
+ifneq ($(HAVE_STRLCAT),yes)
+OBJS+= ../compat/strlcat.o
+endif
+
 SWIG         = @SWIG@
 SWIG_FLAGS   = -tcl8 -pkgversion 1.0 -namespace
 SWIG_LDFLAGS = -ltcl
@@ -32,7 +37,7 @@ else
 	@echo "Please install swig and re-run configure" >&2
 	@echo "To use this SWIG, run configure as follows:" >&2
 	@echo "    SWIG=/opt/swig/bin/swig ./configure --your-usual-config-flags" >&2
-	@echo "If you checked out from svn you can also run svn revert in base/src/machista1.0 to get rid of this error" >&2
+	@echo "If you checked out from git you can also run git restore in base/src/machista1.0 to get rid of this error" >&2
 	@exit 1
 endif
 
@@ -45,7 +50,8 @@ clean::
 	rm -f ${SWIG_OBJS} ${PKG_INDEX}
 	rm -f ${TESTS} \
 		tests/libmachista-test-dependency${SHLIB_SUFFIX} \
-		tests/libmachista-test-lib${SHLIB_SUFFIX}
+		tests/libmachista-test-lib${SHLIB_SUFFIX} \
+		tests/libmachista-test-archive.a
 	rm -rf ${TESTS:%=%.dSYM} \
 		tests/libmachista-test-dependency${SHLIB_SUFFIX}.dSYM \
 		tests/libmachista-test-lib${SHLIB_SUFFIX}.dSYM
@@ -56,26 +62,35 @@ distclean::
 test:: ${TESTS}
 	${TESTS}
 
-tests/libmachista-test: tests/libmachista-test.c libmachista.h libmachista.o hashmap.o tests/libmachista-test-lib${SHLIB_SUFFIX}
+tests/libmachista-test: tests/libmachista-test.c libmachista.h libmachista.o hashmap.o tests/libmachista-test-lib${SHLIB_SUFFIX} tests/libmachista-test-archive.a
 	$(CC) $(CFLAGS) -D_POSIX_SOURCE -o $@ -I. $< libmachista.o hashmap.o
+
+# A static archive (e.g. a *.a library) of more than one host-arch object, used
+# to check that libmachista parses archives and reports each arch only once.
+tests/libmachista-test-archive.a: tests/empty.c
+ifeq (darwin,@OS_PLATFORM@)
+	$(CC) $(CFLAGS) -c $< -o tests/libmachista-test-archive-1.o
+	$(CC) $(CFLAGS) -c $< -o tests/libmachista-test-archive-2.o
+	rm -f $@
+	ar rcs $@ tests/libmachista-test-archive-1.o tests/libmachista-test-archive-2.o
+	rm -f tests/libmachista-test-archive-1.o tests/libmachista-test-archive-2.o
+else
+	touch $@
+endif
 
 # The tests for this library need a universal lib; we used to just use
 # /usr/lib/libSystem.B.dylib, but Apple has removed that with macOS 11, so now
 # we need a different alternative.
 #
 # Build a library that's dual arch, relying on $OS_MAJOR to figure out whatever
-# dual arch means on the current platform. Note the use of -nostdlib, because
-# later versions of macOS actually didn't ship support for i386 stdlibs for
-# a while, so no universal compiling was possible on those machines at all
-# (which didn't matter, since libSystem.B.dylib was still universal on those).
+# dual arch means on the current platform.
 #
 # The if expression below is basically the equivalent from aclocal.m4 for
-# UNIVERSAL_ARCHS, except that we're always forcing some kind of universiality.
+# UNIVERSAL_ARCHS, except that we're always forcing some kind of universality.
 tests/%${SHLIB_SUFFIX}:
 ifeq (darwin,@OS_PLATFORM@)
 	${SHLIB_LD} \
 		$$(if [ @OS_MAJOR@ -lt 10 ]; then echo "-arch i386 -arch ppc"; elif [ @OS_MAJOR@ -lt 20 ]; then echo "-arch x86_64 -arch i386"; else echo "-arch x86_64 -arch arm64"; fi) \
-		-nostdlib \
 		-install_name $@ \
 		$^ \
 		-o $@

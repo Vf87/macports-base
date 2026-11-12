@@ -66,7 +66,7 @@ namespace eval porttrace {
     proc appendEntry {sandbox path action} {
         upvar 2 $sandbox sndbxlst
 
-        set mapping {}
+        set mapping [list]
         # Escape backslashes with backslashes
         lappend mapping "\\" "\\\\"
         # Escape colons with \:
@@ -78,10 +78,9 @@ namespace eval porttrace {
         # path component intact. This will, for instance, prevent /tmp from
         # being resolved to /private/tmp.
         # Use realpath to avoid this behavior.
-        set normalizedPath [file normalize $path]
         # realpath only works on files that exist
-        if {![catch {file type $normalizedPath}]} {
-            set normalizedPath [realpath $normalizedPath]
+        if {[catch {realpath $path} normalizedPath]} {
+            set normalizedPath [file normalize $path]
         }
         lappend sndbxlst "[string map $mapping $path]=$action"
         if {$normalizedPath ne $path} {
@@ -129,7 +128,7 @@ namespace eval porttrace {
     # @param workpath The $workpath of the current installation
     proc trace_start {workpath} {
         global \
-            developer_dir distpath env macportsuser os.platform configure.sdkroot \
+            developer_dir distpath env macportsuser configure.sdkroot \
             portpath prefix use_xcode
 
         variable fifo
@@ -164,7 +163,12 @@ namespace eval porttrace {
         create_slave $workpath $fifo
 
         # Launch darwintrace.dylib.
-        set darwintracepath [file join ${portutil::autoconf::tcl_package_path} darwintrace1.0 darwintrace.dylib]
+        if {[info exists ::env(MACPORTS_SOURCETREE_DARWINTRACE)]} {
+            set darwintracepath [file join $::env(MACPORTS_SOURCETREE_DARWINTRACE) darwintrace.dylib]
+            ui_warn "Using darwintrace.dylib from MacPorts source directory $::env(MACPORTS_SOURCETREE_DARWINTRACE)"
+        } else {
+            set darwintracepath [file join ${::portutil::autoconf::tcl_package_path} darwintrace1.0 darwintrace.dylib]
+        }
 
         # Add darwintrace.dylib as last entry in DYLD_INSERT_LIBRARIES
         if {[info exists env(DYLD_INSERT_LIBRARIES)] && [string length $env(DYLD_INSERT_LIBRARIES)] > 0} {
@@ -226,10 +230,12 @@ namespace eval porttrace {
         }
 
         # Allow access to some Xcode specifics
-        set xcode_paths {}
+        set xcode_paths [list]
         lappend xcode_paths "/var/db/xcode_select_link"
         lappend xcode_paths "/var/db/mds"
-        lappend xcode_paths [file normalize ~${macportsuser}/Library/Preferences/com.apple.dt.Xcode.plist]
+        if {[geteuid] == 0} {
+            lappend xcode_paths [file normalize [file tildeexpand ~${macportsuser}/Library/Preferences/com.apple.dt.Xcode.plist]]
+        }
         lappend xcode_paths "$env(HOME)/Library/Preferences/com.apple.dt.Xcode.plist"
 
         # Allow access to developer_dir; however, if it ends with /Contents/Developer, strip
@@ -264,7 +270,15 @@ namespace eval porttrace {
         }
 
         # Grant access to the directory we use to mirror binaries under SIP
-        allow trace_sandbox ${portutil::autoconf::trace_sipworkaround_path}
+        if {[info exists ::env(DARWINTRACE_SIP_WORKAROUND_PATH)]} {
+            allow trace_sandbox $::env(DARWINTRACE_SIP_WORKAROUND_PATH)
+        } else {
+            allow trace_sandbox ${::portutil::autoconf::trace_sipworkaround_path}
+        }
+        # Grant access to MacPorts' clonebin utilities
+        if {${::portutil::autoconf::clonebin_path} ne ""} {
+            allow trace_sandbox ${::portutil::autoconf::clonebin_path}
+        }
         # Defer back to MacPorts for dependency checks inside $prefix. This must be at the end,
         # or it'll be used instead of more specific rules.
         ask trace_sandbox $prefix
@@ -401,28 +415,29 @@ namespace eval porttrace {
         set thread [macports_create_thread]
 
         # The slave thread needs this file and macports 1.0
-        thread::send $thread "package require porttrace 1.0"
-        thread::send $thread "package require macports 1.0"
+        thread::send $thread [list package require porttrace 1.0]
+        thread::send $thread [list package require macports 1.0]
 
         # slave needs ui_{info,warn,debug,error}...
         # make sure to sync this with ../pextlib1.0/tracelib.c!
-        thread::send $thread "macports::ui_init debug"
-        thread::send $thread "macports::ui_init info"
-        thread::send $thread "macports::ui_init warn"
-        thread::send $thread "macports::ui_init error"
+        thread::send $thread [list macports::ui_init debug]
+        thread::send $thread [list macports::ui_init info]
+        thread::send $thread [list macports::ui_init warn]
+        thread::send $thread [list macports::ui_init error]
 
         # and these variables
-        thread::send $thread "set prefix \"$prefix\"; set developer_dir \"$developer_dir\""
+        thread::send $thread [list set prefix ${prefix}]
+        thread::send $thread [list set developer_dir $developer_dir]
         # The slave thread requires the registry package.
-        thread::send $thread "package require registry 1.0"
+        thread::send $thread [list package require registry 1.0]
         # and an open registry
-        thread::send $thread "registry::open [file join ${registry.path} registry registry.db]"
+        thread::send $thread [list registry::open [file join ${registry.path} registry registry.db]]
 
         # Initialize the slave
-        thread::send $thread "porttrace::slave_init $fifo $workpath"
+        thread::send $thread [list porttrace::slave_init $fifo $workpath]
 
         # Run slave asynchronously
-        thread::send -async $thread "porttrace::slave_run"
+        thread::send -async $thread [list porttrace::slave_run]
     }
 
     ##
@@ -440,8 +455,8 @@ namespace eval porttrace {
         set workpath $p_workpath
 
         # Initialize the sandbox violation lists
-        set sandbox_violation_list {}
-        set sandbox_unknown_list {}
+        set sandbox_violation_list [list]
+        set sandbox_unknown_list [list]
 
         # Create the socket
         tracelib setname $fifo
@@ -476,7 +491,7 @@ namespace eval porttrace {
     proc slave_send {command} {
         variable thread
 
-        if {[thread::send $thread "$command" result]} {
+        if {[thread::send $thread $command result]} {
             return -code error "thread::send \"$command\" failed: $result"
         }
         return $result

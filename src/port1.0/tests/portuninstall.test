@@ -6,17 +6,12 @@ namespace import tcltest::*
 set pwd [file dirname [file normalize $argv0]]
 
 source ../port_test_autoconf.tcl
-package require macports 1.0
+source $macports::autoconf::top_srcdir/src/macports1.0/tests/test_setup.tcl
 
-array set ui_options {}
-#set ui_options(ports_debug)   yes
-#set ui_options(ports_verbose) yes
-mportinit ui_options
-
+package require portutil
 package require portinstall 1.0
 source ../../registry2.0/portuninstall.tcl
 source ../port_autoconf.tcl
-source ./library.tcl
 macports_worker_init
 
 set subport gcc_select
@@ -57,7 +52,7 @@ test uninstall_main {
     set workername [ditem_key $mport workername]
 
     # run destroot
-    if {[$workername eval eval_targets destroot] != 0} {
+    if {[$workername eval [list eval_targets destroot]] != 0} {
         return "FAIL: destroot failed"
     }
 
@@ -69,18 +64,18 @@ test uninstall_main {
     set macports::channels(msg)    {}
     set macports::channels(notice) {}
     
-    if {[$workername eval eval_targets install] != 0} {
+    if {[$workername eval [list eval_targets install]] != 0} {
         return "FAIL: cannot install port"
     }
 
 } -body {
-    if {[$workername eval eval_targets uninstall] != 0} {
+    if {[$workername eval [list eval_targets uninstall]] != 0} {
         return "FAIL: uninstall failed"
     }
     return "Uninstall main successful."
 
 } -cleanup {
-    if {[$workername eval eval_targets clean] != 0} {
+    if {[$workername eval [list eval_targets clean]] != 0} {
         return "FAIL: clean failed"
     }
     

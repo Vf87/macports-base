@@ -75,10 +75,10 @@ CHECKSUMFile(RMD160, RMD160_CTX)
 CHECKSUMData(RMD160, RMD160_CTX)
 #endif
 
-int RMD160Cmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[])
+int RMD160Cmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
 	char *file, *instr, *action;
-	int inlen;
+	Tcl_Size inlen;
 	char buf[2*RIPEMD160_DIGEST_LENGTH + 1];
 	const char usage_message[] = "Usage: rmd160 file";
 	const char file_error_message[] = "Could not open file: ";

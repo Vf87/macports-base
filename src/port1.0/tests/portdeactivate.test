@@ -6,16 +6,11 @@ namespace import tcltest::*
 set pwd [file dirname [file normalize $argv0]]
 
 source ../port_test_autoconf.tcl
-package require macports 1.0
+source $macports::autoconf::top_srcdir/src/macports1.0/tests/test_setup.tcl
 
-array set ui_options {}
-#set ui_options(ports_debug)   yes
-#set ui_options(ports_verbose) yes
-mportinit ui_options
-
+package require portutil 1.0
 package require portdeactivate 1.0
 package require registry 1.0
-source ./library.tcl
 macports_worker_init
 
 
@@ -74,24 +69,24 @@ test deactivate_main {
     set macports::channels(msg)    {}
     set macports::channels(notice) {}
 
-    if {[$workername eval eval_targets install] != 0} {
+    if {[$workername eval [list eval_targets install]] != 0} {
         return "FAIL: port install failed"
     }
 
 } -body {
-    if {[$workername eval eval_targets activate] != 0} {
+    if {[$workername eval [list eval_targets activate]] != 0} {
         return "FAIL: cannot activate port after install"
     }
-    if {[$workername eval eval_targets deactivate] != 0} {
+    if {[$workername eval [list eval_targets deactivate]] != 0} {
         return "FAIL: cannot deactivate port after activate"
     }
     return "Port deactivate successful."
 
 } -cleanup {
-    if {[$workername eval eval_targets uninstall] != 0} {
+    if {[$workername eval [list eval_targets uninstall]] != 0} {
         return "FAIL: uninstall failed"
     }
-    if {[$workername eval eval_targets clean] != 0} {
+    if {[$workername eval [list eval_targets clean]] != 0} {
         return "FAIL: clean failed"
     }
     array set macports::channels $oldchannels

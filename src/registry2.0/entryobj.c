@@ -62,7 +62,7 @@ const char* entry_props[] = {
 
 /* ${entry} prop ?value? */
 static int entry_obj_prop(Tcl_Interp* interp, reg_entry* entry, int objc,
-        Tcl_Obj* CONST objv[]) {
+        Tcl_Obj* const objv[]) {
     int index;
     if (objc > 3) {
         Tcl_WrongNumArgs(interp, 2, objv, "?value?");
@@ -122,7 +122,7 @@ static filemap_op filemap_cmds[] = {
 };
 
 static int entry_obj_filemap(Tcl_Interp* interp, reg_entry* entry, int objc,
-        Tcl_Obj* CONST objv[]) {
+        Tcl_Obj* const objv[]) {
     reg_registry* reg = registry_for(interp, reg_attached);
     int op;
     if (objc != 3) {
@@ -137,7 +137,7 @@ static int entry_obj_filemap(Tcl_Interp* interp, reg_entry* entry, int objc,
         char** files;
         reg_error error;
         Tcl_Obj** listv;
-        int listc;
+        Tcl_Size listc;
         int result = TCL_ERROR;
         if (Tcl_ListObjGetElements(interp, objv[2], &listc, &listv) != TCL_OK) {
             return TCL_ERROR;
@@ -157,7 +157,7 @@ static int entry_obj_filemap(Tcl_Interp* interp, reg_entry* entry, int objc,
 }
 
 static int entry_obj_files(Tcl_Interp* interp, reg_entry* entry, int objc,
-        Tcl_Obj* CONST objv[]) {
+        Tcl_Obj* const objv[]) {
     reg_registry* reg = registry_for(interp, reg_attached);
     if (objc != 2) {
         Tcl_WrongNumArgs(interp, 1, objv, "files");
@@ -191,7 +191,7 @@ static int entry_obj_files(Tcl_Interp* interp, reg_entry* entry, int objc,
 }
 
 static int entry_obj_imagefiles(Tcl_Interp* interp, reg_entry* entry, int objc,
-        Tcl_Obj* CONST objv[]) {
+        Tcl_Obj* const objv[]) {
     reg_registry* reg = registry_for(interp, reg_attached);
     if (objc != 2) {
         Tcl_WrongNumArgs(interp, 1, objv, "imagefiles");
@@ -225,7 +225,7 @@ static int entry_obj_imagefiles(Tcl_Interp* interp, reg_entry* entry, int objc,
 }
 
 static int entry_obj_activate(Tcl_Interp* interp, reg_entry* entry, int objc,
-        Tcl_Obj* CONST objv[]) {
+        Tcl_Obj* const objv[]) {
     reg_registry* reg = registry_for(interp, reg_attached);
     if (objc > 4) {
         Tcl_WrongNumArgs(interp, 1, objv, "activate file-list ?as-file-list?");
@@ -239,8 +239,7 @@ static int entry_obj_activate(Tcl_Interp* interp, reg_entry* entry, int objc,
         Tcl_Obj* as = NULL;
         Tcl_Obj** as_listv = NULL;
         Tcl_Obj** listv;
-        int listc;
-        int as_listc;
+        Tcl_Size listc, as_listc;
         int result = TCL_ERROR;
         if (objc >= 4) {
             as = objv[3];
@@ -277,7 +276,7 @@ static int entry_obj_activate(Tcl_Interp* interp, reg_entry* entry, int objc,
 }
 
 static int entry_obj_dependencies(Tcl_Interp* interp, reg_entry* entry,
-        int objc, Tcl_Obj* CONST objv[]) {
+        int objc, Tcl_Obj* const objv[]) {
     reg_registry* reg = registry_for(interp, reg_attached);
     if (objc != 2) {
         Tcl_WrongNumArgs(interp, 1, objv, "dependencies");
@@ -307,7 +306,7 @@ static int entry_obj_dependencies(Tcl_Interp* interp, reg_entry* entry,
 }
 
 static int entry_obj_dependents(Tcl_Interp* interp, reg_entry* entry, int objc,
-        Tcl_Obj* CONST objv[]) {
+        Tcl_Obj* const objv[]) {
     reg_registry* reg = registry_for(interp, reg_attached);
     if (objc != 2) {
         Tcl_WrongNumArgs(interp, 1, objv, "dependents");
@@ -337,7 +336,7 @@ static int entry_obj_dependents(Tcl_Interp* interp, reg_entry* entry, int objc,
 }
 
 static int entry_obj_depends(Tcl_Interp* interp, reg_entry* entry, int objc,
-        Tcl_Obj* CONST objv[]) {
+        Tcl_Obj* const objv[]) {
     reg_registry* reg = registry_for(interp, reg_attached);
     if (objc != 3) {
         Tcl_WrongNumArgs(interp, 1, objv, "depends portname");
@@ -355,7 +354,7 @@ static int entry_obj_depends(Tcl_Interp* interp, reg_entry* entry, int objc,
 }
 
 static int entry_obj_add_portgroup(Tcl_Interp* interp, reg_entry* entry, int objc,
-        Tcl_Obj* CONST objv[]) {
+        Tcl_Obj* const objv[]) {
     reg_registry* reg = registry_for(interp, reg_attached);
     if (objc != 6) {
         Tcl_WrongNumArgs(interp, 1, objv, "addgroup name version sha256 size");
@@ -378,7 +377,7 @@ static int entry_obj_add_portgroup(Tcl_Interp* interp, reg_entry* entry, int obj
 }
 
 static int entry_obj_get_portgroups(Tcl_Interp* interp, reg_entry* entry, int objc,
-        Tcl_Obj* CONST objv[]) {
+        Tcl_Obj* const objv[]) {
     reg_registry* reg = registry_for(interp, reg_attached);
     if (objc != 2) {
         Tcl_WrongNumArgs(interp, 1, objv, "groups_used");
@@ -410,7 +409,7 @@ static int entry_obj_get_portgroups(Tcl_Interp* interp, reg_entry* entry, int ob
 typedef struct {
     char* name;
     int (*function)(Tcl_Interp* interp, reg_entry* entry, int objc,
-            Tcl_Obj* CONST objv[]);
+            Tcl_Obj* const objv[]);
 } entry_obj_cmd_type;
 
 static entry_obj_cmd_type entry_cmds[] = {
@@ -459,7 +458,7 @@ static entry_obj_cmd_type entry_cmds[] = {
  * chance to touch it.
  */
 int entry_obj_cmd(ClientData clientData, Tcl_Interp* interp, int objc,
-        Tcl_Obj* CONST objv[]) {
+        Tcl_Obj* const objv[]) {
     int cmd_index;
     if (objc < 2) {
         Tcl_WrongNumArgs(interp, 1, objv, "cmd ?arg ...?");

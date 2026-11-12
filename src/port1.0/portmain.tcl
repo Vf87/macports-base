@@ -60,10 +60,10 @@ options prefix name version revision epoch categories maintainers \
         compiler.limit_flags \
         compiler.support_environment_paths \
         compiler.support_environment_sdkroot \
-        add_users use_xcode
+        add_users use_xcode source_date_epoch
 
 proc portmain::check_option_integer {option action args} {
-    if {$action eq "set" && ![string is wideinteger -strict $args]} {
+    if {$action eq "set" && ![string is integer -strict $args]} {
         return -code error "$option must be an integer"
     }
 }
@@ -86,21 +86,18 @@ options_export name version revision epoch categories maintainers \
 
 default subport {[portmain::get_default_subport]}
 proc portmain::get_default_subport {} {
-    global name portpath
+    global name
     if {[info exists name]} {
         return $name
     }
+    global portpath
     return [file tail $portpath]
 }
 default subbuildpath {[portmain::get_subbuildpath]}
 proc portmain::get_subbuildpath {} {
-    global portpath portbuildpath subport
-    if {$subport ne ""} {
-        set subdir $subport
-    } else {
-        set subdir [file tail $portpath]
-    }
-    return [file normalize [file join $portbuildpath $subdir]]
+    global portpath subport
+    set subdir [expr {$subport ne "" ? $subport : [file tail $portpath]}]
+    return [getportbuildpath $portpath $subdir]
 }
 default workpath {[getportworkpath_from_buildpath $subbuildpath]}
 default prefix /opt/local
@@ -124,11 +121,12 @@ default depends_skip_archcheck {}
 default add_users {}
 
 # Configure settings
-default install.user {${portutil::autoconf::install_user}}
-default install.group {${portutil::autoconf::install_group}}
+default install.user {${::portutil::autoconf::install_user}}
+default install.group {${::portutil::autoconf::install_group}}
 
 # Platform Settings
 default platforms darwin
+option_proc platforms _handle_platforms
 default os.platform {$os_platform}
 default os.subplatform {$os_subplatform}
 default os.version {$os_version}
@@ -137,21 +135,19 @@ default os.minor {$os_minor}
 default os.arch {$os_arch}
 default os.endian {$os_endian}
 
-set macos_version_text {}
-if {[option os.platform] eq "darwin"} {
-    set macos_version_text "(macOS ${macos_version}) "
+proc portmain::report_platform_info {} {
+    global os.platform os.version os.arch macos_version
+    set macos_version_text {}
+    if {${os.platform} eq "darwin"} {
+        set macos_version_text "(macOS ${macos_version}) "
+    }
+    ui_debug "OS ${os.platform}/${os.version} ${macos_version_text}arch ${os.arch}"
 }
-ui_debug "OS [option os.platform]/[option os.version] ${macos_version_text}arch [option os.arch]"
 
 default universal_variant {${use_configure}}
 
-if {[option os.platform] eq "darwin" && [option os.subplatform] eq "macosx"} {
-    # we're on macOS and can therefore build universal
-    default os.universal_supported yes
-} else {
-    default os.universal_supported no
-}
-
+# if we're on macOS and can therefore build universal
+default os.universal_supported {[expr {${os.subplatform} eq "macosx"}]}
 default universal_possible {[expr {${os.universal_supported} && [llength ${configure.universal_archs}] >= 2}]}
 
 default compiler.cpath {${prefix}/include}
@@ -168,7 +164,35 @@ set egid [getegid]
 default worksymlink {[file normalize [file join $portpath work]]}
 default distpath {[file normalize [file join $portdbpath distfiles ${dist_subdir}]]}
 
-default use_xcode {[expr {[option build.type] eq "xcode" || !([file exists /usr/lib/libxcselect.dylib] || [option os.major] >= 20) || ![file executable /Library/Developer/CommandLineTools/usr/bin/make]}]}
+default use_xcode {[expr {${build.type} eq "xcode" || !([file exists /usr/lib/libxcselect.dylib] || ${os.major} >= 20) || ![file executable /Library/Developer/CommandLineTools/usr/bin/make]}]}
+
+default source_date_epoch {[portmain::get_source_date_epoch]}
+
+# Figure out when this port was last modified, intended to be used as a
+# timestamp for reproducible builds.
+proc portmain::get_source_date_epoch {} {
+    variable source_date_epoch_cached
+    if {[info exists source_date_epoch_cached]} {
+        return $source_date_epoch_cached
+    }
+
+    global portpath PortInfo
+    set checkpaths [list $portpath]
+    if {[info exists PortInfo(portgroups)]} {
+        lappend checkpaths {*}[lmap g $PortInfo(portgroups) {lindex $g 2}]
+    }
+    set newest [portutil::get_latest_commit_time $checkpaths]
+
+    if {$newest eq {}} {
+        global filespath
+        set maybe_filespath [expr {[file isdirectory $filespath] ? [list $filespath] : {}}]
+        set checkpaths [list [file join $portpath Portfile] {*}$maybe_filespath {*}[lrange $checkpaths 1 end]]
+        set newest [portutil::get_latest_path_mtime $checkpaths]
+    }
+
+    set source_date_epoch_cached $newest
+    return $newest
+}
 
 proc portmain::main {args} {
     return 0

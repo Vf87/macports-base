@@ -217,13 +217,16 @@ E-mail address(es) of port maintainer(s).
 Declares which platforms are supported by the port.
 .br
 .Sy Type:
-.Em required
+.Em optional
 .br
 .Sy Values:
 .Em darwin freebsd
 .br
+.Sy Default:
+.Em darwin
+.br
 .Sy Example:
-.Dl platforms darwin
+.Dl platforms darwin freebsd
 .It Ic supported_archs
 The CPU architectures for which this port can be built.
 Archs currently supported by macOS are:
@@ -318,7 +321,7 @@ List of checksums for the
 .Ic distfiles .
 The checksum
 .Ar type
-can currently be md5, sha1, rmd160, sha256 or size.
+can currently be md5, sha1, rmd160, sha256, blake3 or size.
 The
 .Ar filename
 can be omitted if there is only one distfile.
@@ -947,7 +950,7 @@ Use bzip2.
 Sets
 .Ic extract.suffix
 to
-.Dq .bz2 .
+.Dq .tar.bz2 .
 .br
 Sets
 .Ic extract.cmd
@@ -983,7 +986,7 @@ Use lzma.
 Sets
 .Ic extract.suffix
 to
-.Dq .lzma .
+.Dq .tar.lzma .
 .br
 Sets
 .Ic extract.cmd
@@ -1024,7 +1027,7 @@ Use xz.
 Sets
 .Ic extract.suffix
 to
-.Dq .xz .
+.Dq .tar.xz .
 .br
 Sets
 .Ic extract.cmd
@@ -1054,6 +1057,37 @@ to
 .br
 .Sy Example:
 .Dl use_7z yes
+.It Ic use_dmg
+Use a disk image (dmg).
+Note that the arguments passed to 'hdiutil' are extensive, and can vary based
+on the Darwin release, other options, etc.
+As such, ports should not attempt to manipulate 'extract.post_args'.
+.br
+Sets
+.Ic extract.suffix
+to
+.Dq .dmg .
+.br
+Sets
+.Ic extract.cmd
+to
+.Dq hdiutil .
+.br
+Sets
+.Ic extract.pre_args
+to
+.Dq attach .
+.br
+Sets
+.Ic extract.post_args
+to
+.Dq -private -readonly -nobrowse -mountpoint ...etc... .
+.br
+.Sy Type:
+.Em optional
+.br
+.Sy Example:
+.Dl use_dmg yes
 .It Ic dist_subdir
 Create a sub-directory in
 .Ic distpath
@@ -1101,6 +1135,16 @@ Whether to ignore the host SSL certificate (for HTTPS).
 .br
 .Sy Default:
 .Em no
+.br
+.It Ic fetch.user_agent
+HTTP User-Agent to use when fetching the resource.
+Useful for servers that block requests from the default curl user agent.
+.br
+.Sy Type:
+.Em optional
+.br
+.Sy Default:
+.Em \&""
 .br
 .El
 .Ss FETCHING FROM CVS
@@ -1260,6 +1304,32 @@ Command to perform the extraction.
 .br
 .Sy Example:
 .Dl extract.cmd bzip2
+.It Xo
+.Ic extract.methods Ar filename Ar method
+.Op Ar filename Ar method ...
+.Xc
+Override extract method for some distfiles. By default, the extract
+command and arguments are chosen based on the filename suffix. This
+option can override that choice in case of unusually named files.
+.br
+.Sy Type:
+.Em optional
+.br
+.Sy Method values:
+.Em 7z bzip2 dmg gzip lzip lzma tar xz zip zstd
+.br
+If a method not in the above list is specified, it is assumed to refer
+to a procedure defined in the Portfile which takes a single argument
+containing the path to a distfile, which will extract it when called.
+.br
+.Sy Default:
+.Em none (empty)
+.br
+.Sy Example:
+.Bd -literal -offset indent -compact
+extract.methods worksrc-1.4.4.tar.gz lzma \e
+                extrafile-1.0.unusualsuffix gzip
+.Ed
 .It Ic extract.mkdir
 Create the
 .Ic worksrcdir
@@ -1507,6 +1577,17 @@ macOS SDK version to build against.
 .br
 .Sy Example:
 .Dl configure.sdk_version 10.8
+.It Ic configure.sdkroot
+The path to the macOS SDK to build against.
+.br
+.Sy Type:
+.Em optional
+.br
+.Sy Default:
+.Em Automatically set by MacPorts; varies by macOS release, whether Xcode installed, etc.
+.br
+.Sy Example:
+.Dl configure.sdkroot /Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk
 .\" FOOBAR
 .El
 .Ss UNIVERSAL TARGET HOOKS
@@ -1996,6 +2077,20 @@ standard output from the daemon may also be directed to the logfile.
 .br
 .Sy Example:
 .Dl startupitem.logfile ${prefix}/var/log/mydaemon.log
+.It Ic startupitem.logfile.stderr
+Path to a logfile for capturing standard error output from the daemon.
+.br
+.Sy Type:
+.Em optional
+.br
+.Sy Default:
+.Em startupitem.logfile
+.br
+.Sy Values:
+.Em path
+.br
+.Sy Example:
+.Dl startupitem.logfile.stderr ${prefix}/var/log/mydaemon.log
 .It Ic startupitem.logevents
 Control whether or not to log events to the log file.
 If this option is set, events with timestamps are logged to the logfile.
@@ -2026,6 +2121,34 @@ machine's network state is detected.
 .br
 .Sy Example:
 .Dl startupitem.netchange yes
+.It Ic startupitem.user
+Run the daemon via the specified user.
+.br
+.Sy Type:
+.Em optional
+.br
+.Sy Default:
+.Em none
+.br
+.Sy Values:
+.Em username
+.br
+.Sy Example:
+.Dl startupitem.user my_daemon_username
+.It Ic startupitem.group
+Run the daemon via the specified group.
+.br
+.Sy Type:
+.Em optional
+.br
+.Sy Default:
+.Em none
+.br
+.Sy Values:
+.Em groupname
+.br
+.Sy Example:
+.Dl startupitem.group my_daemon_groupname
 .It Ic startupitems
 Used when a port needs to install more than one startupitem, this option
 consists of a list where alternating elements represent keys and values.
@@ -2108,6 +2231,8 @@ tag of the freecode XML file),
 (retrieve the version by applying a regex to some URL resource),
 .Em regexm
 (retrieve the version by applying a multi-line regex to some URL resource),
+.Em git
+(retrieve the commit from a remote git branch),
 .Em md5
 (compares the md5 sum of some URL resource) or
 .Em none
@@ -2126,7 +2251,7 @@ is one of these, else
 .Em freecode
 .br
 .Sy Values:
-.Em freecode sourceforge googlecode moddate regex regexm md5 none
+.Em freecode sourceforge googlecode moddate regex regexm git md5 none
 .It Ic livecheck.name
 Name of the project for live checks (used for freecode, sourceforge, and googlecode checks).
 .br
@@ -2182,11 +2307,25 @@ Be sure to use a regular expression grouping around the version component.
 .br
 .Sy Type:
 .Em optional
+.It Ic livecheck.branch
+git branch to use for getting latest commit.
+.br
+.Sy Type:
+.Em optional
 .It Ic livecheck.md5
 md5 sum to use for md5 comparison.
 .br
 .Sy Type:
 .Em optional
+.It Ic livecheck.user_agent
+HTTP User-Agent to use when fetching the livecheck resource.
+Useful for servers that block requests from the default curl user agent.
+.br
+.Sy Type:
+.Em optional
+.br
+.Sy Default:
+.Em \&""
 .El
 .Sh VARIANT OPTIONS
 MacPorts allows for conditional modification to be specified in a
@@ -2633,11 +2772,6 @@ Create a temporary file using a
 .Ar template .
 See
 .Xr mktemp 3 .
-.It Ic mkstemp Ar template
-Create a temporary file securely using a
-.Ar template .
-See
-.Xr mkstemp 3 .
 .It Ic mkdtemp Ar template
 Create a temporary directory using a
 .Ar template .
@@ -2727,25 +2861,20 @@ is set to the empty string and the entire former value is returned.
 Has the same usage semantics as
 .Xr lindex n .
 .It Xo
-.Ic try
+.Ic macports_try
+.Op Ar -pass_signal
 .Ar body
 .Oo
-.Nm catch Nm {
-.Ar type-list
-.Op Ar ecvar
-.Op Ar msgvar
-.Op Ar infovar
-.Nm }
-.Ar body Ar \&...
+.Ar handler Ar \&...
 .Oc
-.Op Nm finally Ar body
+.Op Nm finally Ar script
 .Xc
-Implements a try-catch-finally block as defined in TIP #89.
+Tcl try block with optional signal pass-thru. When signal pass-thru is not required, use the native try.
 .br
 .Sy Example:
-Basic try-finally construct.
+Basic try-finally construct with signal passing.
 .Bd -literal -offset indent -compact
-try {
+macports_try -pass_signal {
     set fd [open $file r]
     # do stuff here
 } finally {
@@ -2753,43 +2882,28 @@ try {
 }
 .Ed
 .Sy Example:
-Basic try-catch construct
+Basic try-on error construct
 .Bd -literal -offset indent -compact
-try {
+macports_try -pass_signal {
     set result [expr $num / $div]
-} catch {{ARITH DIVZERO}} {
+} trap {ARITH DIVZERO} {eMessage eOptions} {
     set result -1
 }
 .Ed
 .Sy Example:
-Basic try with multiple catches construct
+Basic try with multiple handlers construct
 .Bd -literal -offset indent -compact
-try {
+macports_try -pass_signal {
     set fd [open $file r]
     # do stuff here
-} catch {{POSIX ENOENT} {} msgvar} {
-    puts stderr $msgvar
-} catch {*} {
+} trap {POSIX ENOENT} {eMessage eOptions} {
+    puts stderr $eMessage
+} on error {_ eOptions} {
     puts stderr "An error occurred while processing the file"
     close $fd
-    throw
+    throw [dict get $eOptions -errorcode] [dict get $eOptions -errorinfo]
 }
 .Ed
-.It Xo
-.Ic throw
-.Op Ar type
-.Op Ar message
-.Op Ar info
-.Xc
-Throws an exception.
-If given arguments, works just like
-.Ic error
-.Ar message
-.Ar info
-.Ar type .
-If called with no arguments from within a
-.Ic catch
-block, re-throws the caught exception.
 .El
 .Pp
 .Bl -tag -width lc -compact

@@ -275,9 +275,6 @@ AC_DEFUN([MP_CONFIG_SUBDIR], [
 			mp_arg="--cache-file=$mp_sub_cache_file"
 			_MP_LIST_PREPEND_QUOTED([mp_sub_configure_args], [mp_arg])
 
-			mp_arg="--srcdir=$ac_srcdir"
-			_MP_LIST_APPEND_QUOTED([mp_sub_configure_args], [mp_arg])
-
 			mp_arg="CC=$CC"
 			_MP_LIST_APPEND_QUOTED([mp_sub_configure_args], [mp_arg])
 
@@ -557,12 +554,11 @@ AC_DEFUN([MP_CHECK_OLDLAYOUT],[
 AC_DEFUN([MP_CHECK_NOROOTPRIVILEGES],[
 	dnl if the user specifies --with-no-root-privileges,
 	dnl use current user and group.
-	dnl use ~/Library/Tcl as Tcl package directory
 	AC_REQUIRE([MP_PATH_MPCONFIGDIR])
 
-	AC_ARG_WITH(no-root-privileges, [AS_HELP_STRING([--with-no-root-privileges],[specify that MacPorts should be installed in your home directory])], [ROOTPRIVS=$withval] )
+	AC_ARG_WITH(no-root-privileges, [AS_HELP_STRING([--with-no-root-privileges],[specify that MacPorts should be installed in your home directory])], [NO_ROOTPRIVS=$withval] )
 
-	if test "${ROOTPRIVS+set}" = set; then
+	if test "${NO_ROOTPRIVS+set}" = set; then
 		# Set install-user to current user
 		AC_MSG_CHECKING([for install user])
 		DSTUSR=`id -un`
@@ -808,7 +804,7 @@ AC_DEFUN([MP_LIB_MD5],[
 		])
 		ac_save_LIBS="$LIBS"
 		LIBS="-lmd $LIBS"
-		AC_CHECK_FUNCS([SHA1_File])
+		AC_CHECK_DECLS([SHA1_File], [], [], [[#include <sha.h>]])
 		LIBS="$ac_save_LIBS"
 		AC_CHECK_HEADERS([ripemd.h sha256.h])
 		AC_DEFINE([HAVE_LIBMD], ,[Define if you have the `md' library (-lmd).])
@@ -902,62 +898,6 @@ AC_DEFUN([MP_LIBCURL_FLAGS],[
 
 	AC_SUBST(CFLAGS_LIBCURL)
 	AC_SUBST(LDFLAGS_LIBCURL)
-])
-
-# MP_SQLITE3_FLAGS
-#	Sets the flags to compile with libsqlite3 and tclsqlite3.
-#
-# Arguments:
-#	None.
-#
-# Requires:
-#   pkgconfig, libsqlite3 in /usr/lib, or user parameters to define the flags.
-#
-# Results:
-#   defines some help strings.
-#   sets CFLAGS_SQLITE3, LIBS_SQLITE3 and LDFLAGS_SQLITE3
-#---------------------------------------
-AC_DEFUN([MP_SQLITE3_FLAGS],[
-    # first sqlite3 itself
-	AC_ARG_WITH(sqlite3prefix,
-		   [  --with-sqlite3prefix    base directory for the sqlite3 install ('/usr', '/usr/local', ...)],
-		   [  sqlite3prefix=$withval ])
-
-	if test "x$sqlite3prefix" = "x"; then
-		# see if it's somewhere like /usr that needs no extra flags
-		LIBS_SQLITE3="-lsqlite3"
-		LDFLAGS_SQLITE3=""
-		AC_CHECK_HEADER(sqlite3.h, [],[
-		    # nope - try pkg-config
-			AC_PATH_PROG([PKG_CONFIG], [pkg-config])
-			if test "x$PKG_CONFIG" = "x" || ! $PKG_CONFIG --exists sqlite3; then
-				AC_MSG_ERROR([cannot find sqlite3 header])
-			else
-				CFLAGS_SQLITE3=$($PKG_CONFIG --cflags sqlite3)
-				LDFLAGS_SQLITE3=$($PKG_CONFIG --libs-only-L --libs-only-other sqlite3)
-				LIBS_SQLITE3=$($PKG_CONFIG --libs-only-l sqlite3)
-				# for tclsqlite below
-				mp_sqlite3_dir=$($PKG_CONFIG --variable=prefix sqlite3)
-            			if test "x$mp_sqlite3_dir" != "x"; then
-                			mp_sqlite3_dir=${mp_sqlite3_dir}/lib/sqlite3
-            			fi
-			fi
-		])
-	else
-	    CFLAGS_SQLITE3="-I${sqlite3prefix}/include"
-	    LIBS_SQLITE3="-lsqlite3"
-		LDFLAGS_SQLITE3="-L${sqlite3prefix}/lib"
-	fi
-
-	# check if we have sqlite3ext.h, using the appropriate cppflags
-	CPPFLAGS_OLD="${CPPFLAGS}"
-	CPPFLAGS="${CPPFLAGS} ${CFLAGS_SQLITE3}"
-	AC_CHECK_HEADERS(sqlite3ext.h)
-	CPPFLAGS="${CPPFLAGS_OLD}"
-
-	AC_SUBST(CFLAGS_SQLITE3)
-	AC_SUBST(LDFLAGS_SQLITE3)
-	AC_SUBST(LIBS_SQLITE3)
 ])
 
 dnl This macro tests if the compiler supports GCC's
@@ -1103,6 +1043,23 @@ AC_DEFUN([MP_TAR_FAST_READ],[
 	AC_SUBST(TAR_Q)
 ])
 
+dnl This macro tests for tar support of -k (keep existing files)
+dnl without erroring when files exist.
+AC_DEFUN([MP_TAR_KEEP_OLD],[
+	AC_MSG_CHECKING([whether tar -k works])
+	mkdir -p conftest_dir
+	touch conftest_dir/file
+	$TAR -cf conftest.tar conftest_dir
+	if $TAR -xkf conftest.tar >/dev/null 2>&1 ; then
+		AC_MSG_RESULT([yes])
+		TAR_K='k'
+	else
+		AC_MSG_RESULT([no])
+		TAR_K=
+	fi
+	AC_SUBST(TAR_K)
+])
+
 dnl This macro tests for tar support of --no-same-owner
 AC_DEFUN([MP_TAR_NO_SAME_OWNER],[
 	AC_PATH_PROG(TAR, [tar])
@@ -1168,94 +1125,6 @@ AC_DEFUN([MP_WERROR],[
 ])
 
 #------------------------------------------------------------------------
-# MP_CHECK_SQLITE_VERSION --
-#
-#	Check the version of SQLite that was found
-#
-# Arguments:
-#       None.
-#
-# Requires:
-#       MP_SQLITE3_FLAGS
-#
-# Depends:
-#		AC_LANG_SOURCE
-#
-# Results:
-#		Result is cached.
-#
-#       Sets mp_sqlite_version to the older of the SQLite versions
-#       found in the header and at runtime, in the same numeric format
-#       as SQLITE_VERSION_NUMBER.
-#       (Runtime check is skipped if cross-compiling and the result is
-#       then always the header version.)
-#
-#------------------------------------------------------------------------
-AC_DEFUN(MP_CHECK_SQLITE_VERSION, [
-	AC_REQUIRE([MP_SQLITE3_FLAGS])
-
-	AC_MSG_CHECKING([for SQLite version in header])
-
-	mp_check_sqlite_version_cppflags_save=$CPPFLAGS
-	mp_check_sqlite_version_ldflags_save=$LDFLAGS
-	mp_check_sqlite_version_libs_save=$LIBS
-	CPPFLAGS="$CPPFLAGS $CFLAGS_SQLITE3"
-	LDFLAGS="$LDFLAGS $LDFLAGS_SQLITE3"
-	LIBS="$LIBS $LIBS_SQLITE3"
-
-	AC_CACHE_VAL([mp_cv_sqlite_version], [
-		CPPFLAGS="-dM $CPPFLAGS"
-		AC_PREPROC_IFELSE(
-			[AC_LANG_SOURCE(
-				[[
-					#include <sqlite3.h>
-					#ifndef SQLITE_VERSION_NUMBER
-					#  error "SQLITE_VERSION_NUMBER undefined"
-					#endif
-				]]
-			)],
-			[mp_cv_sqlite_version=`fgrep SQLITE_VERSION_NUMBER conftest.i | sed -E 's/[[^0-9]]*([[0-9]]+)/\1/'`],
-			[AC_MSG_ERROR("SQLITE_VERSION_NUMBER undefined or sqlite3.h not found")]
-		)
-	])
-
-	AC_MSG_RESULT(${mp_cv_sqlite_version})
-	mp_sqlite_version=${mp_cv_sqlite_version}
-
-    AC_MSG_CHECKING([for SQLite version at runtime])
-    AC_CACHE_VAL([mp_cv_sqlite_run_version], [
-        CPPFLAGS="$mp_check_sqlite_version_cppflags_save $CFLAGS_SQLITE3"
-        AC_RUN_IFELSE(
-            [AC_LANG_SOURCE(
-				[[
-				    #include <stdio.h>
-					#include <sqlite3.h>
-					int main(int argc, char* argv[])
-					{
-					    int vers = sqlite3_libversion_number();
-					    if (argc > 1) {
-					        printf("%d\n", vers);
-					    }
-					    return 0;
-					}
-				]]
-			)],
-			[mp_cv_sqlite_run_version=`./conftest$EXEEXT noisy`],
-			[AC_MSG_ERROR("Failed to run sqlite3_libversion_number test program")],
-			[mp_cv_sqlite_run_version=$mp_cv_sqlite_version]
-		)
-    ])
-    AC_MSG_RESULT(${mp_cv_sqlite_run_version})
-    if test "$mp_cv_sqlite_run_version" -lt "$mp_cv_sqlite_version"; then
-        mp_sqlite_version=$mp_cv_sqlite_run_version
-    fi
-
-	CPPFLAGS=$mp_check_sqlite_version_cppflags_save
-	LDFLAGS=$mp_check_sqlite_version_ldflags_save
-	LIBS=$mp_check_sqlite_version_libs_save
-])
-
-#------------------------------------------------------------------------
 # MP_PLATFORM --
 #
 #       Export target platform and major version
@@ -1315,6 +1184,16 @@ AC_DEFUN([MP_TRACEMODE_SUPPORT],[
 			TRACEMODE_SUPPORT=0
 		elif test x"${ac_cv_func_kevent}" != "xyes"; then
 			AC_MSG_RESULT([kevent() not available, no])
+			TRACEMODE_SUPPORT=0
+		elif test x"$(arch)" == "xarm64" && test "$(sw_vers --productVersion | cut -d. -f1)" -le 14; then
+			# /bin/ln on macOS 14 is built with a set of relocations that break
+			# when binary-patching the architecture from arm64e to arm64,
+			# leading to 'dyld: bad bind opcode 0x19'.
+			#
+			# Newer versions don't seem to ship such binaries, so until
+			# somebody comes along to find a solution for these few binaries,
+			# let's just disable tracemode support on macOS <= 14.
+			AC_MSG_RESULT([arm64 on macOS <= 14, no])
 			TRACEMODE_SUPPORT=0
 		else
 			AC_EGREP_CPP(yes_have_ev_receipt, [

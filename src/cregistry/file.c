@@ -95,9 +95,9 @@ static int reg_stmt_to_file(void* userdata, void** file, void* stmt,
  * Opens an existing file in the registry.
  *
  * @param [in] reg      registry to open entry in
- * @param [in] id       port id in the dabatase
+ * @param [in] id       port id in the database
  * @param [in] name     file path in the database
- * @param [out] errPtr  on error, a description of the error that occures
+ * @param [out] errPtr  on error, a description of the error that occurs
  * @return              the file if success, NULL if failure
  */
 reg_file* reg_file_open(reg_registry* reg, char* id, char* name,
@@ -105,7 +105,7 @@ reg_file* reg_file_open(reg_registry* reg, char* id, char* name,
     sqlite3_stmt* stmt = NULL;
     reg_file* file = NULL;
     char* query = "SELECT id, path FROM registry.files "
-#if MP_SQLITE_VERSION >= 3006004
+#if SQLITE_VERSION_NUMBER >= 3006004
         /* if the version of SQLite supports it force the usage of the index on
          * path, rather than the one on id which has a lot less discriminative
          * power and leads to very slow queries. This is needed for the new
@@ -245,7 +245,7 @@ int reg_file_propget(reg_file* file, char* key, char** value,
     const char *text;
     query = sqlite3_mprintf(
             "SELECT %q FROM registry.files "
-#if MP_SQLITE_VERSION >= 3006004
+#if SQLITE_VERSION_NUMBER >= 3006004
             /* if the version of SQLite supports it force the usage of the index
              * on path, rather than the one on id which has a lot less
              * discriminative power and leads to very slow queries. This is
@@ -309,7 +309,7 @@ int reg_file_propset(reg_file* file, char* key, char* value,
     char* query;
     query = sqlite3_mprintf(
             "UPDATE registry.files "
-#if MP_SQLITE_VERSION >= 3006004
+#if SQLITE_VERSION_NUMBER >= 3006004
             /* if the version of SQLite supports it force the usage of the index
              * on path, rather than the one on id which has a lot less
              * discriminative power and leads to very slow queries. This is

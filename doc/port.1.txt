@@ -127,6 +127,10 @@ The port command recognizes several global flags and options.
 -d::
     Debug mode, generate debugging messages, implies -v
 
+-T::
+    Timestamp mode, prepend an ISO 8601 timestamp (e.g.
+    '2026-03-18T09:42:01-0400') to every line of output.
+
 -q::
     Quiet mode, suppress informational messages to a minimum, implies -N
 
@@ -156,7 +160,7 @@ The port command recognizes several global flags and options.
     binary archives.
 
 -b::
-    Binary-only mode, build and install from binary archives, ignore source,
+    Binary-only mode, install from binary archives, ignore source,
     abort if no archive available.
 
 .Cleaning
@@ -366,7 +370,7 @@ copy with the user set to the owner of the working copy.
 +
 
 outdated::
-    Lists the installed ports which need a 'upgrade'.
+    Lists the installed ports which need an 'upgrade'.
 
 upgrade::
     The upgrade action works on a port and its dependencies. If you want to
@@ -535,6 +539,9 @@ mirror::
 version::
     Display the release number of the installed MacPorts infrastructure.
 
+prefix::
+    Display the prefix for which MacPorts was configured.
+
 selfupdate::
     Updates the MacPorts system, ports tree(s) and base tools if needed, from
     the MacPorts rsync server, installing the newest infrastructure available.
@@ -563,6 +570,22 @@ reload::
 
 gohome::
     Loads the home page for the given portname in the default web browser.
+
+migrate::
+    Reinstall MacPorts and all requested ports to ensure a smooth transition
+    after major system changes such as operating system upgrades or CPU
+    architecture changes. This automates the migration procedure previously
+    documented at wiki:Migration[], which MacPorts recommends you follow after
+    each major OS version upgrade. See man:port-migrate[1] for more details.
+
+snapshot::
+    Create a snapshot of the currently installed ports to restore at a later
+    point in time, e.g., after an OS upgrade. See man:port-snapshot[1] for more
+    information.
+
+restore::
+    Restore a previously created snapshot of installed ports created using
+    man:port-snapshot[1]. See man:port-restore[1] for more information.
 
 usage::
     Displays a condensed usage summary.
@@ -712,7 +735,7 @@ man:portstyle[7], man:porthier[7]
 AUTHORS
 -------
  (C) 2002-2003 Apple Inc.
- (C) 2004-2018 The MacPorts Project
+ (C) 2004-2026 The MacPorts Project
  Landon Fuller <landonf@macports.org>
  James Berry <jberry@macports.org>
  Jordan K. Hubbard <jkh@macports.org>

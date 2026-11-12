@@ -1,5 +1,4 @@
-# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:filetype=tcl:et:sw=4:ts=4:sts=4
-# portbuild.tcl
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=tcl:et:sw=4:ts=4:sts=4
 #
 # Copyright (c) 2007 - 2013 The MacPorts Project
 # Copyright (c) 2002 - 2004 Apple Inc.
@@ -28,16 +27,14 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-#
 
 package provide portbuild 1.0
-package require portutil 1.0
-package require portprogress 1.0
 
 set org.macports.build [target_new org.macports.build portbuild::build_main]
 target_provides ${org.macports.build} build
 target_requires ${org.macports.build} main fetch checksum extract patch configure
 target_prerun ${org.macports.build} portbuild::build_start
+target_runpkg ${org.macports.build} portbuild_run
 
 namespace eval portbuild {
 }
@@ -45,6 +42,8 @@ namespace eval portbuild {
 # define options
 options build.asroot \
         build.jobs \
+        build.jobs_arg \
+        build.mem_per_job \
         build.target \
         use_parallel_build
 commands build
@@ -54,27 +53,26 @@ default build.dir {${worksrcpath}}
 default build.cmd {[portbuild::build_getmaketype]}
 default build.nice {${buildnicevalue}}
 default build.jobs {[portbuild::build_getjobs]}
+default build.jobs_arg {[portbuild::build_getjobsarg]}
+default build.mem_per_job 1024
 default build.pre_args {[portbuild::build_getargs]}
-default build.target "all"
-default build.type "default"
+default build.target all
+default build.type default
 default use_parallel_build yes
-
-set_ui_prefix
 
 # Automatically called from macports1.0 after evaluating the Portfile. If
 # ${build.type} == bsd, ensures bsdmake is present by adding a bin:-style
 # dependency.
 proc portbuild::add_automatic_buildsystem_dependencies {} {
-    global build.type.add_deps
+    global build.type.add_deps build.type os.platform
     if {!${build.type.add_deps}} {
         return
     }
-    if {[option build.type] eq "bsd" && [option os.platform] eq "darwin"} {
+    if {${build.type} eq "bsd" && ${os.platform} eq "darwin"} {
         ui_debug "build.type is BSD, adding bin:bsdmake:bsdmake build dependency"
         depends_build-delete bin:bsdmake:bsdmake
         depends_build-append bin:bsdmake:bsdmake
-    }
-    if {[option build.type] eq "gnu" && [option os.platform] eq "freebsd"} {
+    } elseif {${build.type} eq "gnu" && ${os.platform} eq "freebsd"} {
         ui_debug "build.type is GNU, adding bin:gmake:gmake build dependency"
         depends_build-delete bin:gmake:gmake
         depends_build-append bin:gmake:gmake
@@ -87,46 +85,53 @@ options build.type.add_deps
 default build.type.add_deps yes
 
 proc portbuild::build_getmaketype {args} {
-    if {[option build.type] eq "default"} {
-        return [findBinary make $portutil::autoconf::make_path]
-    }
-    switch -exact -- [option build.type] {
-        bsd {
-            if {[option os.platform] eq "darwin"} {
-                return [findBinary bsdmake $portutil::autoconf::bsdmake_path]
-            } elseif {[option os.platform] eq "freebsd"} {
-                return [findBinary make $portutil::autoconf::make_path]
-            } else {
-                return [findBinary pmake $portutil::autoconf::bsdmake_path]
-            }
+    global build.type os.platform
+    macports_try -pass_signal {
+        if {${build.type} eq "default"} {
+            return [findBinary make $::portutil::autoconf::make_path]
         }
-        gnu {
-            if {[option os.platform] eq "darwin"} {
-                return [findBinary gnumake $portutil::autoconf::gnumake_path]
-            } elseif {[option os.platform] eq "linux"} {
-                return [findBinary make $portutil::autoconf::make_path]
-            } else {
-                return [findBinary gmake $portutil::autoconf::gnumake_path]
+        switch -exact -- ${build.type} {
+            bsd {
+                if {${os.platform} eq "darwin"} {
+                    return [findBinary bsdmake $::portutil::autoconf::bsdmake_path]
+                } elseif {${os.platform} eq "freebsd"} {
+                    return [findBinary make $::portutil::autoconf::make_path]
+                } else {
+                    return [findBinary pmake $::portutil::autoconf::bsdmake_path]
+                }
             }
-        }
-        pbx -
-        xcode {
-            if {[option os.platform] ne "darwin"} {
-                return -code error "[format [msgcat::mc "This port requires 'xcodebuild', which is not available on %s."] [option os.platform]]"
+            gnu {
+                if {${os.platform} eq "darwin"} {
+                    return [findBinary gnumake $::portutil::autoconf::gnumake_path]
+                } elseif {${os.platform} eq "linux"} {
+                    return [findBinary make $::portutil::autoconf::make_path]
+                } else {
+                    return [findBinary gmake $::portutil::autoconf::gnumake_path]
+                }
             }
+            pbx -
+            xcode {
+                if {${os.platform} ne "darwin"} {
+                    error "[format [msgcat::mc "This port requires 'xcodebuild', which is not available on %s."] ${os.platform}]"
+                }
 
-            global xcodebuildcmd
-            if {$xcodebuildcmd ne "none"} {
-                return $xcodebuildcmd
-            } else {
-                return -code error "xcodebuild was not found on this system!"
+                global xcodebuildcmd
+                if {$xcodebuildcmd ne "none"} {
+                    return $xcodebuildcmd
+                } else {
+                    error "xcodebuild was not found on this system!"
+                }
+            }
+            default {
+                ui_warn "[format [msgcat::mc "Unknown build.type %s, using 'gnumake'"] ${build.type}]"
+                return [findBinary gnumake $::portutil::autoconf::gnumake_path]
             }
         }
-        default {
-            ui_warn "[format [msgcat::mc "Unknown build.type %s, using 'gnumake'"] [option build.type]]"
-            return [findBinary gnumake $portutil::autoconf::gnumake_path]
-        }
+    } on error {eMessage} {
+        ui_warn $eMessage
+        ui_warn "Unable to find build command for build.type '${build.type}'"
     }
+    return ""
 }
 
 proc portbuild::build_getjobs {args} {
@@ -139,20 +144,23 @@ proc portbuild::build_getjobs {args} {
     }
     # if set to '0', use the number of cores for the number of jobs
     if {$jobs == 0} {
-        try -pass_signal {
+        macports_try -pass_signal {
             set jobs [sysctl hw.activecpu]
-        } catch {{*} eCode eMessage} {
+        } on error {} {
             set jobs 2
             ui_warn "failed to determine the number of available CPUs (probably not supported on this platform)"
             ui_warn "defaulting to $jobs jobs, consider setting buildmakejobs to a nonzero value in macports.conf"
         }
 
-        try -pass_signal {
-            set memsize [sysctl hw.memsize]
-            if {$jobs > $memsize / (1024 * 1024 * 1024) + 1} {
-                set jobs [expr {$memsize / (1024 * 1024 * 1024) + 1}]
+        macports_try -pass_signal {
+            global os.major os.platform build.mem_per_job
+            set sysctl_name [expr {(${os.major} >= 23 && ${os.platform} eq "darwin") ? "hw.memsize_usable" : "hw.memsize"}]
+            set memsize [sysctl $sysctl_name]
+            set jobs_limit_mem [expr {int($memsize / (${build.mem_per_job} * 1024 * 1024)) + 1}]
+            if {$jobs > $jobs_limit_mem} {
+                set jobs $jobs_limit_mem
             }
-        } catch {*} {}
+        } on error {} {}
     }
     if {![string is integer -strict $jobs] || $jobs <= 1} {
         set jobs 1
@@ -161,45 +169,30 @@ proc portbuild::build_getjobs {args} {
 }
 
 proc portbuild::build_getargs {args} {
-    if {(([option build.type] eq "default" && [option os.platform] ne "freebsd") || \
-         ([option build.type] eq "gnu")) \
-        && [regexp "^(/\\S+/|)(g|gnu|)make(\\s+.*|)$" [option build.cmd]]} {
+    global build.type os.platform build.cmd build.target
+    if {((${build.type} eq "default" && ${os.platform} ne "freebsd") || \
+         (${build.type} eq "gnu")) \
+        && [regexp "^(/\\S+/|)(g|gnu|)make(\\s+.*|)$" ${build.cmd}]} {
         # Print "Entering directory" lines for better log debugging
-        return "-w [option build.target]"
+        return "-w ${build.target}"
     }
 
-    return "[option build.target]"
+    return ${build.target}
 }
 
 proc portbuild::build_getjobsarg {args} {
+    global build.cmd build.jobs
+    set cmdname [file tail [lindex ${build.cmd} 0]]
     if {![exists build.jobs] || \
-            !([string match "*make*" [option build.cmd]] || \
-              [string match "*ninja*" [option build.cmd]] || \
-              [string match "*scons*" [option build.cmd]])} {
+            !([string match "*make" $cmdname] || \
+              "ninja" eq $cmdname || \
+              "scons" eq $cmdname)} {
         return ""
     }
-    
-    set jobs [option build.jobs]
-    if {![string is integer -strict $jobs] || $jobs < 1} {
+
+    set jobs ${build.jobs}
+    if {![string is integer -strict $jobs] || $jobs < 1 || ($cmdname ne "ninja" && $jobs < 2)} {
         return ""
     }
     return " -j$jobs"
-}
-
-proc portbuild::build_start {args} {
-    global UI_PREFIX
-
-    ui_notice "$UI_PREFIX [format [msgcat::mc "Building %s"] [option subport]]"
-}
-
-proc portbuild::build_main {args} {
-    global build.cmd
-
-    set jobs_suffix [build_getjobsarg]
-
-    set realcmd ${build.cmd}
-    set build.cmd "${build.cmd}$jobs_suffix"
-    command_exec -callback portprogress::target_progress_callback build
-    set build.cmd ${realcmd}
-    return 0
 }

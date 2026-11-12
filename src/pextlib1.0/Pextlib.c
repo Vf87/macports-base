@@ -61,6 +61,7 @@
 #include <limits.h>
 #include <netdb.h>
 #include <pwd.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -70,9 +71,21 @@
 #include <unistd.h>
 #include <assert.h>
 
+/* For clonefile */
+#ifdef HAVE_SYS_ATTR_H
+#include <sys/attr.h>
+#endif
+#ifdef HAVE_SYS_CLONEFILE_H
+#include <sys/clonefile.h>
+#endif
+
 #ifdef __MACH__
+#include <ar.h>
 #include <mach-o/loader.h>
 #include <mach-o/fat.h>
+#ifndef FAT_MAGIC_64
+#define FAT_MAGIC_64 0xcafebabf
+#endif
 #endif
 
 #include <tcl.h>
@@ -83,6 +96,7 @@
 #include "sha1cmd.h"
 #include "rmd160cmd.h"
 #include "sha256cmd.h"
+#include "blake3cmd.h"
 #include "fs-traverse.h"
 #include "filemap.h"
 #include "curl.h"
@@ -99,6 +113,7 @@
 #include "system.h"
 #include "mktemp.h"
 #include "realpath.h"
+#include "time_connect.h"
 
 #if HAVE_CRT_EXTERNS_H
 #include <crt_externs.h>
@@ -187,7 +202,7 @@ void ui_debug(Tcl_Interp *interp, const char *format, ...) {
     va_end(va);
 }
 
-int StrsedCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[])
+int StrsedCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
     char *pattern, *string, *res;
     int range[2];
@@ -211,7 +226,7 @@ int StrsedCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Ob
     return TCL_OK;
 }
 
-int ExistsuserCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[])
+int ExistsuserCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
     Tcl_Obj *tcl_result;
     struct passwd *pwent;
@@ -239,7 +254,7 @@ int ExistsuserCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tc
     return TCL_OK;
 }
 
-int ExistsgroupCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[])
+int ExistsgroupCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
     Tcl_Obj *tcl_result;
     struct group *grent;
@@ -270,7 +285,7 @@ int ExistsgroupCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, T
 /* Find the first unused UID > 500
    UIDs > 500 are visible on the macOS login screen,
    but UIDs < 500 are reserved by Apple */
-int NextuidCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc UNUSED, Tcl_Obj *CONST objv[] UNUSED)
+int NextuidCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc UNUSED, Tcl_Obj *const objv[] UNUSED)
 {
     Tcl_Obj *tcl_result;
     int cur;
@@ -287,7 +302,7 @@ int NextuidCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc UNUSED
 }
 
 /* Just as with NextuidCmd, return the first unused gid > 500 */
-int NextgidCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc UNUSED, Tcl_Obj *CONST objv[] UNUSED)
+int NextgidCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc UNUSED, Tcl_Obj *const objv[] UNUSED)
 {
     Tcl_Obj *tcl_result;
     int cur;
@@ -303,7 +318,7 @@ int NextgidCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc UNUSED
     return TCL_OK;
 }
 
-int UmaskCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[])
+int UmaskCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
     Tcl_Obj *tcl_result;
     char *tcl_mask, *p;
@@ -354,7 +369,7 @@ int UmaskCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj
  * Create a symbolic link at target pointing to value
  * See symlink(2) for possible errors
  */
-int CreateSymlinkCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[])
+int CreateSymlinkCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
     char *value, *target;
 
@@ -381,7 +396,7 @@ int CreateSymlinkCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc,
  * Syntax is:
  * unsetenv name (* for all)
  */
-int UnsetEnvCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[])
+int UnsetEnvCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
     char *name;
 
@@ -408,15 +423,15 @@ int UnsetEnvCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_
         for (char **envp = environ; *envp != NULL; envp++) {
             char *equals = strchr(*envp, '=');
             if (equals != NULL) {
-				size_t len = (size_t)(equals - *envp);
+				Tcl_Size len = (Tcl_Size)(equals - *envp);
                 Tcl_ListObjAppendElement(interp, tclList, Tcl_NewStringObj(*envp, len));
             }
         }
 
-		int listLength;
+		Tcl_Size listLength;
 		Tcl_Obj **listArray;
         Tcl_ListObjGetElements(interp, tclList, &listLength, &listArray);
-        for (int loopCounter = 0; loopCounter < listLength; loopCounter++) {
+        for (Tcl_Size loopCounter = 0; loopCounter < listLength; loopCounter++) {
             unsetenv(Tcl_GetString(listArray[loopCounter]));
         }
         Tcl_DecrRefCount( tclList );
@@ -449,9 +464,9 @@ int UnsetEnvCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_
  *
  * Synopsis: lchown filename user ?group?
  */
-int lchownCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[])
+int lchownCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
-    CONST char *path;
+    const char *path;
     long user;
     long group = -1;
 
@@ -462,7 +477,7 @@ int lchownCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Ob
 
     path = Tcl_GetString(objv[1]);
     if (Tcl_GetLongFromObj(NULL, objv[2], &user) != TCL_OK) {
-        CONST char *userString = Tcl_GetString(objv[2]);
+        const char *userString = Tcl_GetString(objv[2]);
         struct passwd *pwent = getpwnam(userString);
         if (pwent == NULL) {
             Tcl_SetResult(interp, "Unknown user given", TCL_STATIC);
@@ -472,7 +487,7 @@ int lchownCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Ob
     }
     if (objc == 4) {
         if (Tcl_GetLongFromObj(NULL, objv[3], &group) != TCL_OK) {
-           CONST char *groupString = Tcl_GetString(objv[3]);
+           const char *groupString = Tcl_GetString(objv[3]);
            struct group *grent = getgrnam(groupString);
            if (grent == NULL) {
                Tcl_SetResult(interp, "Unknown group given", TCL_STATIC);
@@ -498,7 +513,7 @@ int lchownCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Ob
  *
  * Synopsis: fileIsBinary filename
  */
-static int fileIsBinaryCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[]) {
+static int fileIsBinaryCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     const char *path;
     FILE *file;
     uint32_t magic;
@@ -511,7 +526,7 @@ static int fileIsBinaryCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int
 
     path = Tcl_GetString(objv[1]);
     if (-1 == lstat(path, &st)) {
-        /* an error occured */
+        /* an error occurred */
         Tcl_SetErrno(errno);
         Tcl_ResetResult(interp);
         Tcl_AppendResult(interp, "lstat(", path, "):", (char *)Tcl_PosixError(interp), NULL);
@@ -542,11 +557,22 @@ static int fileIsBinaryCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int
         fclose(file);
         return TCL_ERROR;
     }
-    if (magic == MH_MAGIC || magic == MH_MAGIC_64) {
+    if (magic == MH_MAGIC || magic == MH_MAGIC_64 || magic == MH_CIGAM
+        || magic == MH_CIGAM_64 || magic == htonl(FAT_MAGIC_64)) {
         fclose(file);
         /* this is a mach-o file */
         Tcl_SetObjResult(interp, Tcl_NewBooleanObj(true));
         return TCL_OK;
+    }
+    if (memcmp(&magic, ARMAG, sizeof(magic)) == 0) {
+        /* static archive ("!<arch>\n", e.g. *.a); holds mach-o objects */
+        char rest[SARMAG - sizeof(magic)];
+        if (sizeof(rest) == fread(rest, 1, sizeof(rest), file)
+                && memcmp(rest, &ARMAG[sizeof(magic)], sizeof(rest)) == 0) {
+            fclose(file);
+            Tcl_SetObjResult(interp, Tcl_NewBooleanObj(true));
+            return TCL_OK;
+        }
     }
     if (magic == htonl(FAT_MAGIC)) {
         uint32_t archcount;
@@ -590,7 +616,7 @@ static int fileIsBinaryCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int
 
 /* Check if the configured DNS server(s) incorrectly return a result for
    a nonexistent hostname. Returns true if broken, false if OK. */
-int CheckBrokenDNSCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc UNUSED, Tcl_Obj *CONST objv[] UNUSED)
+int CheckBrokenDNSCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc UNUSED, Tcl_Obj *const objv[] UNUSED)
 {
     static int already_checked = 0;
     Tcl_Obj *tcl_result;
@@ -623,7 +649,7 @@ int CheckBrokenDNSCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc
 
 	raises the limit of open files to the maximum
 */
-int SetMaxOpenFilesCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc UNUSED, Tcl_Obj *CONST objv[] UNUSED)
+int SetMaxOpenFilesCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc UNUSED, Tcl_Obj *const objv[] UNUSED)
 {
 	struct rlimit rl;
 
@@ -913,6 +939,10 @@ int fs_case_sensitive_fallback(Tcl_Interp *interp, const char *path, mount_cs_ca
     int ret = -1;
     char *mntpoint = NULL;
 
+    if (!path) {
+        return ret;
+    }
+
     if (cache) {
         mntpoint = get_mntpoint(path);
 
@@ -924,10 +954,6 @@ int fs_case_sensitive_fallback(Tcl_Interp *interp, const char *path, mount_cs_ca
                 return ret;
             }
         }
-    }
-
-    if (!path) {
-        return ret;
     }
 
     char *lowercase_path = strdup(path);
@@ -1037,7 +1063,7 @@ int fs_case_sensitive_fallback(Tcl_Interp *interp, const char *path, mount_cs_ca
  * Returns 1 if the FS is case-sensitive, 0 otherwise.
  * Errors out if the case-sensitivity could not be determined.
  */
-int FSCaseSensitiveCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[]) {
+int FSCaseSensitiveCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     Tcl_Obj *tcl_result;
     int ret = -1;
 
@@ -1067,16 +1093,142 @@ int FSCaseSensitiveCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int obj
     }
 }
 
+/**
+ * Determines filesystem clone capability for a specific path.
+ * Returns 1 if the FS supports clones, 0 otherwise.
+ * Errors out if the capability could not be determined.
+ */
+int FSCloneCapableCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    Tcl_Obj *tcl_result;
+    int ret = 0;
+
+    if (objc != 2) {
+        Tcl_WrongNumArgs(interp, 1, objv, "path");
+        return TCL_ERROR;
+    }
+
+#ifdef VOL_CAP_INT_CLONE
+    char *path = Tcl_GetString(objv[1]);
+    if (!path) {
+        return TCL_ERROR;
+    }
+
+    struct attrlist attrlist;
+    volcaps_t volcaps;
+
+    memset(&attrlist, 0, sizeof(attrlist));
+    attrlist.bitmapcount = ATTR_BIT_MAP_COUNT;
+    attrlist.volattr = ATTR_VOL_CAPABILITIES;
+
+    if (-1 == getattrlist(path, &attrlist, &volcaps, sizeof(volcaps), 0)
+        || (attrlist.volattr & ATTR_VOL_CAPABILITIES) == 0) {
+        return TCL_ERROR;
+    }
+
+    if ((volcaps.volcaps.valid[VOL_CAPABILITIES_INTERFACES] & VOL_CAP_INT_CLONE)) {
+        /* capabilities bit for clone valid */
+        ret = (volcaps.volcaps.capabilities[VOL_CAPABILITIES_INTERFACES] & VOL_CAP_INT_CLONE) != 0;
+    }
+#endif /* VOL_CAP_INT_CLONE */
+
+    tcl_result = Tcl_NewBooleanObj(ret);
+    Tcl_SetObjResult(interp, tcl_result);
+    return TCL_OK;
+}
+
+/**
+ * Interface to clonefile(2)
+ */
+int ClonefileCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    int ret = -1;
+
+    if (objc != 3) {
+        Tcl_WrongNumArgs(interp, 1, objv, "srcpath dstpath");
+        return TCL_ERROR;
+    }
+
+#ifdef HAVE_CLONEFILE
+    char *srcpath = Tcl_GetString(objv[1]);
+    char *dstpath = Tcl_GetString(objv[2]);
+    if (!srcpath || !dstpath) {
+        return TCL_ERROR;
+    }
+
+    ret = clonefile(srcpath, dstpath, CLONE_NOFOLLOW);
+    if (ret != 0) {
+        Tcl_SetErrno(errno);
+        Tcl_ResetResult(interp);
+        Tcl_AppendResult(interp, "clonefile failed: ", (char *)Tcl_PosixError(interp), NULL);
+    }
+#endif /* HAVE_CLONEFILE */
+
+    if (ret == 0) {
+        return TCL_OK;
+    }
+    return TCL_ERROR;
+}
+
+static int fileIsSparseCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+#ifdef SEEK_HOLE
+    const char *path;
+    struct stat st;
+    int fd;
+    off_t end_offset;
+    off_t hole_offset;
+
+    if (objc != 2) {
+        Tcl_WrongNumArgs(interp, 1, objv, "filename");
+        return TCL_ERROR;
+    }
+
+    path = Tcl_GetString(objv[1]);
+    if (-1 == lstat(path, &st)) {
+        /* an error occurred */
+        Tcl_SetErrno(errno);
+        Tcl_ResetResult(interp);
+        Tcl_AppendResult(interp, "lstat(", path, "):", (char *)Tcl_PosixError(interp), NULL);
+        return TCL_ERROR;
+    }
+    if (!S_ISREG(st.st_mode)) {
+        /* not a regular file, haven't seen directories which are sparse yet */
+        Tcl_SetObjResult(interp, Tcl_NewBooleanObj(false));
+        return TCL_OK;
+    }
+    if ((fd = open(path, O_RDONLY)) < 0) {
+        Tcl_SetErrno(errno);
+        Tcl_ResetResult(interp);
+        Tcl_AppendResult(interp, "open(", path, "): ", (char *)Tcl_PosixError(interp), NULL);
+        return TCL_ERROR;
+    }
+
+    lseek(fd, 0, SEEK_SET);
+    hole_offset = lseek(fd, 0, SEEK_HOLE);
+    end_offset = lseek(fd, 0, SEEK_END);
+    close(fd);
+    if (hole_offset >= 0 && end_offset >= 0
+        && hole_offset < end_offset) {
+        Tcl_SetObjResult(interp, Tcl_NewBooleanObj(true));
+        return TCL_OK;
+    }
+#endif /* SEEK_HOLE */
+
+    Tcl_SetObjResult(interp, Tcl_NewBooleanObj(false));
+    return TCL_OK;
+}
+
 int Pextlib_Init(Tcl_Interp *interp)
 {
-    if (Tcl_InitStubs(interp, "8.4", 0) == NULL)
+    if (Tcl_InitStubs(interp, "8.6-", 0) == NULL)
         return TCL_ERROR;
+
+    Tcl_CreateNamespace(interp, "::pextlib", NULL, NULL);
+    Tcl_CreateNamespace(interp, "::pextlib::curl", NULL, NULL);
 
 	Tcl_CreateObjCommand(interp, "system", SystemCmd, NULL, NULL);
 	Tcl_CreateObjCommand(interp, "adv-flock", AdvFlockCmd, NULL, NULL);
 	Tcl_CreateObjCommand(interp, "readdir", ReaddirCmd, NULL, NULL);
+	Tcl_CreateObjCommand(interp, "dirempty", DiremptyCmd, NULL, NULL);
 	Tcl_CreateObjCommand(interp, "strsed", StrsedCmd, NULL, NULL);
-	Tcl_CreateObjCommand(interp, "mkstemp", MkstempCmd, NULL, NULL);
 	Tcl_CreateObjCommand(interp, "mktemp", MktempCmd, NULL, NULL);
 	Tcl_CreateObjCommand(interp, "mkdtemp", MkdtempCmd, NULL, NULL);
 	Tcl_CreateObjCommand(interp, "existsuser", ExistsuserCmd, NULL, NULL);
@@ -1091,6 +1243,7 @@ int Pextlib_Init(Tcl_Interp *interp)
 	Tcl_CreateObjCommand(interp, "rmd160", RMD160Cmd, NULL, NULL);
 	Tcl_CreateObjCommand(interp, "sha256", SHA256Cmd, NULL, NULL);
 	Tcl_CreateObjCommand(interp, "sha1", SHA1Cmd, NULL, NULL);
+	Tcl_CreateObjCommand(interp, "blake3", BLAKE3Cmd, NULL, NULL);
 	Tcl_CreateObjCommand(interp, "umask", UmaskCmd, NULL, NULL);
 	Tcl_CreateObjCommand(interp, "pipe", PipeCmd, NULL, NULL);
 	Tcl_CreateObjCommand(interp, "curl", CurlCmd, NULL, NULL);
@@ -1101,6 +1254,7 @@ int Pextlib_Init(Tcl_Interp *interp)
 #ifdef __MACH__
     Tcl_CreateObjCommand(interp, "fileIsBinary", fileIsBinaryCmd, NULL, NULL);
 #endif
+    Tcl_CreateObjCommand(interp, "fileIsSparse", fileIsSparseCmd, NULL, NULL);
 
     Tcl_CreateObjCommand(interp, "readline", ReadlineCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "rl_history", RLHistoryCmd, NULL, NULL);
@@ -1128,6 +1282,10 @@ int Pextlib_Init(Tcl_Interp *interp)
     Tcl_CreateObjCommand(interp, "set_max_open_files", SetMaxOpenFilesCmd, NULL, NULL);
 
     Tcl_CreateObjCommand(interp, "fs_case_sensitive", FSCaseSensitiveCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "fs_clone_capable", FSCloneCapableCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "clonefile", ClonefileCmd, NULL, NULL);
+
+    Tcl_CreateObjCommand(interp, "time_connect", TimeConnectCmd, NULL, NULL);
 
     if (Tcl_PkgProvide(interp, "Pextlib", "1.0") != TCL_OK)
         return TCL_ERROR;

@@ -56,6 +56,7 @@
 #include <getopt.h>
 #include <fcntl.h>
 #include <stdarg.h>
+#include <strings.h>
 #include <time.h>
 #include <sys/types.h>
 #include <sys/event.h>
@@ -70,8 +71,8 @@
 #include <IOKit/IOMessage.h>
 
 // Constants
-const CFTimeInterval kChildDeathTimeout = 20.0;
-const CFTimeInterval kChildStartPidTimeout = 30.0;
+static const CFTimeInterval kChildDeathTimeout = 20.0;
+static const CFTimeInterval kChildStartPidTimeout = 30.0;
 
 typedef enum {
     kPidStyleUnknown = 0,
@@ -82,40 +83,40 @@ typedef enum {
 } PidStyle;
 
 // Globals
-CFStringRef         kProgramName        = NULL;
-CFStringRef         kChildWatchMode     = NULL;
+static CFStringRef         kProgramName        = NULL;
+static CFStringRef         kChildWatchMode     = NULL;
 
-int                 verbosity           = 0;        // Verbosity level
-const char*         label               = NULL;
+static int                 verbosity           = 0;        // Verbosity level
+static const char*         label               = NULL;
 
-const char* const*  startArgs           = NULL;     // Argvs for start-cmd, stop-cmd, and restart-cmd
-const char* const*  stopArgs            = NULL;
-const char* const*  restartArgs         = NULL;
+static const char* const*  startArgs           = NULL;     // Argvs for start-cmd, stop-cmd, and restart-cmd
+static const char* const*  stopArgs            = NULL;
+static const char* const*  restartArgs         = NULL;
 
-PidStyle            pidStyle            = kPidStyleUnknown;
-const char*         pidFile             = NULL;
+static PidStyle            pidStyle            = kPidStyleUnknown;
+static const char*         pidFile             = NULL;
 
-int                 terminating         = 0;        // TRUE if we're terminating
-pid_t               runningPid          = 0;        // Current running pid (0 while stopped, -1 if we don't know pid)
+static int                 terminating         = 0;        // TRUE if we're terminating
+static pid_t               runningPid          = 0;        // Current running pid (0 while stopped, -1 if we don't know pid)
 
-int                 kqfd                = 0;        // Kqueue file descriptor
+static int                 kqfd                = 0;        // Kqueue file descriptor
 
-mach_port_t         sigChild_m_port     = 0;        // Mach port to send signals through
-mach_port_t         sigGeneric_m_port   = 0;        // Mach port to send signals through
+static mach_port_t         sigChild_m_port     = 0;        // Mach port to send signals through
+static mach_port_t         sigGeneric_m_port   = 0;        // Mach port to send signals through
 
-CFMutableArrayRef   scRestartPatterns   = NULL;     // Array of sc patterns to restart daemon on
-CFMutableArrayRef   distNotifyNames     = NULL;     // Array of distributed notification names to restart daemon on
-CFMutableArrayRef   darwinNotifyNames   = NULL;     // Array of darwin notification names to restart daemon on
+static CFMutableArrayRef   scRestartPatterns   = NULL;     // Array of sc patterns to restart daemon on
+static CFMutableArrayRef   distNotifyNames     = NULL;     // Array of distributed notification names to restart daemon on
+static CFMutableArrayRef   darwinNotifyNames   = NULL;     // Array of darwin notification names to restart daemon on
 
-io_connect_t        pwrRootPort         = 0;
-int                 restartOnWakeup     = 0;        // TRUE to restart daemon on wake from sleep
-CFRunLoopTimerRef   restartTimer        = NULL;     // Timer for scheduled restart
-CFTimeInterval      restartHysteresis   = 5.0;      // Default hysteresis is 5 seconds
-int				    restartWait		   	= 3;      	// Default wait during restart is 3 seconds
+static io_connect_t        pwrRootPort         = 0;
+static int                 restartOnWakeup     = 0;        // TRUE to restart daemon on wake from sleep
+static CFRunLoopTimerRef   restartTimer        = NULL;     // Timer for scheduled restart
+static CFTimeInterval      restartHysteresis   = 5.0;      // Default hysteresis is 5 seconds
+static int                 restartWait         = 3;        // Default wait during restart is 3 seconds
 
 
 __printflike(1, 2)
-void
+static void
 LogMessage(const char* fmt, ...)
 {
     struct tm tm;
@@ -140,7 +141,7 @@ LogMessage(const char* fmt, ...)
 }
 
 
-const char*
+static const char*
 CatArray(const char* const* strarray, char* buf, size_t size)
 {
     const char* sep = " ";
@@ -157,14 +158,14 @@ CatArray(const char* const* strarray, char* buf, size_t size)
 }
 
 
-void
+static void
 DoVersion(void)
 {
     printf("daemondo, version 1.1\n\n");
 }
 
 
-void
+static void
 DoHelp(void)
 {
     DoVersion();
@@ -223,9 +224,9 @@ DoHelp(void)
         "escape or quote the ';' to protect it from special handling by your shell.\n"
         "\n"
         "daemondo runs in one of two modes: (1) If no stop-cmd is given, daemondo\n"
-        "executes start-cmd asyncronously, and tracks the process id; that process id\n"
+        "executes start-cmd asynchronously, and tracks the process id; that process id\n"
         "is used to signal the daemon for later stop and/or restart. (2) If stop-cmd\n"
-        "is given, then both start-cmd and stop-cmd are issued syncronously, and are\n"
+        "is given, then both start-cmd and stop-cmd are issued synchronously, and are\n"
         "assumed to do all the work of controlling the daemon. In such cases there is\n"
         "no process id to track. In either mode, restart-cmd, if present, is used to\n"
         "restart the daemon. If in mode 1, restart-cmd must not disrupt the process id.\n"
@@ -256,7 +257,7 @@ DoHelp(void)
 }
 
 
-void
+static void
 CreatePidFile(void)
 {
     // Write a pid file if we're expected to
@@ -282,7 +283,7 @@ CreatePidFile(void)
     }
 }
 
-void
+static void
 DestroyPidFile(void)
 {
     // Cleanup the pid file
@@ -296,20 +297,20 @@ DestroyPidFile(void)
             break;
         case kPidStyleExec:         // We wrote the file, and we'll remove it
         case kPidStyleFileClean:    // The process wrote the file, but we'll remove it
-			if (verbosity >= 5)
-				LogMessage("Attempting to delete pidfile %s\n", pidFile);
+            if (verbosity >= 5)
+                LogMessage("Attempting to delete pidfile %s\n", pidFile);
             if (unlink(pidFile) && verbosity >= 3)
-				LogMessage("Failed attempt to delete pidfile %s (%d)\n", pidFile, errno);            
+                LogMessage("Failed attempt to delete pidfile %s (%d)\n", pidFile, errno);
             break;
         }
     } else {
-		if (verbosity >= 5)
-			LogMessage("No pidfile to delete: none specified\n");
+        if (verbosity >= 5)
+            LogMessage("No pidfile to delete: none specified\n");
     }
 }
 
 
-pid_t
+static pid_t
 CheckForValidPidFile(void)
 {
     // Try to read the pid from the pid file
@@ -332,7 +333,7 @@ CheckForValidPidFile(void)
 }
 
 
-pid_t
+static pid_t
 DeletePreexistingPidFile(void)
 {
     // Try to read the pid from the pid file
@@ -352,26 +353,26 @@ DeletePreexistingPidFile(void)
     
     // Log information about the discovered pid file
     if (verbosity >= 3 && pid != -1) {
-    	LogMessage("Discovered preexisting pidfile %s containing pid %d which is a %s process\n", pidFile, pid, 
-    		(valid) ? "valid" : "invalid");
+        LogMessage("Discovered preexisting pidfile %s containing pid %d which is a %s process\n", pidFile, pid,
+            (valid) ? "valid" : "invalid");
     }
-    
+
     // Try to delete the pidfile if it's present
     if (pid != -1) {
-	    if (unlink(pidFile)) {
-	    	if (verbosity >= 3)
-		  		LogMessage("Error %d while trying to cleanup prexisting pidfile %s\n", errno, pidFile);
-	  	} else {
- 	  		if (verbosity >= 3)
-		  		LogMessage("Deleted preexisting pidfile %s\n", pidFile);
-		}
-	}
-    
+        if (unlink(pidFile)) {
+            if (verbosity >= 3)
+                LogMessage("Error %d while trying to cleanup preexisting pidfile %s\n", errno, pidFile);
+        } else {
+            if (verbosity >= 3)
+                LogMessage("Deleted preexisting pidfile %s\n", pidFile);
+        }
+    }
+
     return pid;
 }
 
 
-pid_t
+static pid_t
 WaitForValidPidFile(void)
 {
     CFAbsoluteTime patience = CFAbsoluteTimeGetCurrent() + kChildStartPidTimeout;
@@ -389,7 +390,7 @@ WaitForValidPidFile(void)
 
 
 
-void
+static void
 MonitorChild(pid_t childPid)
 {
     runningPid = childPid;
@@ -407,21 +408,21 @@ MonitorChild(pid_t childPid)
 }
 
 
-void
-UnmonitorChild()
+static void
+UnmonitorChild(void)
 {
     runningPid = 0;
 }
 
 
-int
-MonitoringChild()
+static int
+MonitoringChild(void)
 {
     return runningPid != 0;
 }
 
 
-void
+static void
 ProcessChildDeath(pid_t childPid)
 {
     // Take special note if process runningPid dies
@@ -438,7 +439,7 @@ ProcessChildDeath(pid_t childPid)
 }
 
 
-void
+static void
 WaitChildDeath(pid_t childPid)
 {
     // Wait for the death of a particular child
@@ -476,7 +477,7 @@ WaitChildDeath(pid_t childPid)
 }
 
 
-void
+static void
 CheckChildren(void)
 {
     // Process any pending child deaths
@@ -487,7 +488,7 @@ CheckChildren(void)
 }
 
 
-pid_t
+static pid_t
 Exec(const char* const argv[], int sync)
 {
     if (!argv || !argv[0] || !*argv[0])
@@ -535,7 +536,7 @@ Exec(const char* const argv[], int sync)
 }
 
 
-int
+static int
 Start(void)
 {   
     char buf[1024];
@@ -548,8 +549,8 @@ Start(void)
     
     if (verbosity >= 1)
         LogMessage("Starting process\n");
-	if (pidFile != NULL)
-		DeletePreexistingPidFile();
+    if (pidFile != NULL)
+        DeletePreexistingPidFile();
     if (verbosity >= 2)
         LogMessage("Running start-cmd %s\n", CatArray(startArgs, buf, sizeof(buf)));
         
@@ -608,7 +609,7 @@ Start(void)
 }
 
 
-int
+static int
 Stop(void)
 {
     char buf[1024];
@@ -662,7 +663,7 @@ Stop(void)
 }
 
 
-int
+static int
 Restart(void)
 {
     char buf[1024];
@@ -686,8 +687,8 @@ Restart(void)
     }
     else
     {
-    	// Bug: we should recapture the target process id from the pidfile in this case
-    	
+        // Bug: we should recapture the target process id from the pidfile in this case
+
         // Execute the restart-cmd and trust it to do the job
         if (verbosity >= 1)
             LogMessage("Restarting process\n");
@@ -709,7 +710,7 @@ Restart(void)
 }
 
 
-void
+static void
 ScheduledRestartCallback(CFRunLoopTimerRef timer UNUSED, void *info UNUSED)
 {
     if (verbosity >= 3)
@@ -720,7 +721,7 @@ ScheduledRestartCallback(CFRunLoopTimerRef timer UNUSED, void *info UNUSED)
 }
 
 
-void
+static void
 CancelScheduledRestart(void)
 {
     // Kill off any existing timer
@@ -734,7 +735,7 @@ CancelScheduledRestart(void)
 }
 
 
-void
+static void
 ScheduleRestartForTime(CFAbsoluteTime absoluteTime)
 {
     // Cancel any currently scheduled restart
@@ -747,7 +748,7 @@ ScheduleRestartForTime(CFAbsoluteTime absoluteTime)
 }
 
 
-void
+static void
 ScheduleDelayedRestart(void)
 {
     // The hysteresis here allows us to take multiple restart requests within a small
@@ -760,7 +761,7 @@ ScheduleDelayedRestart(void)
 }
 
 
-void
+static void
 DynamicStoreChanged(
                     SCDynamicStoreRef   store UNUSED,
                     CFArrayRef          changedKeys,
@@ -791,7 +792,7 @@ DynamicStoreChanged(
 }
 
 
-void
+static void
 PowerCallBack(void *x UNUSED, io_service_t y UNUSED, natural_t messageType, void *messageArgument)
 {
     switch (messageType)
@@ -815,7 +816,7 @@ PowerCallBack(void *x UNUSED, io_service_t y UNUSED, natural_t messageType, void
 }
 
 
-void
+static void
 NotificationCenterCallback(
                                 CFNotificationCenterRef center UNUSED,
                                 void *observer UNUSED,
@@ -834,7 +835,7 @@ NotificationCenterCallback(
 }
 
 
-void
+static void
 SignalCallback(CFMachPortRef port UNUSED, void *msg, CFIndex size UNUSED, void *info UNUSED)
 {
     mach_msg_header_t* hdr = (mach_msg_header_t*)msg;
@@ -868,7 +869,7 @@ SignalCallback(CFMachPortRef port UNUSED, void *msg, CFIndex size UNUSED, void *
 }
 
 
-void KQueueCallBack (CFSocketRef socketRef, CFSocketCallBackType type UNUSED,
+static void KQueueCallBack (CFSocketRef socketRef, CFSocketCallBackType type UNUSED,
              CFDataRef address UNUSED, const void *data UNUSED, void *context UNUSED)
 {
     int fd = CFSocketGetNative(socketRef);
@@ -894,7 +895,7 @@ void KQueueCallBack (CFSocketRef socketRef, CFSocketCallBackType type UNUSED,
 }
 
 
-void
+static void
 AddNotificationToCenter(const void* value, void* context)
 {
     CFNotificationCenterAddObserver((CFNotificationCenterRef)context,
@@ -906,7 +907,7 @@ AddNotificationToCenter(const void* value, void* context)
 }
 
 
-void handle_child_signal(int sig)
+static void handle_child_signal(int sig)
 {
     // Because there's a limited environment in which we can operate while
     // handling a signal, we send a mach message to our run loop, and handle
@@ -926,7 +927,7 @@ void handle_child_signal(int sig)
 }
 
 
-void handle_generic_signal(int sig)
+static void handle_generic_signal(int sig)
 {
     // Because there's a limited environment in which we can operate while
     // handling a signal, we send a mach message to our run loop, and handle
@@ -946,7 +947,7 @@ void handle_generic_signal(int sig)
 }
 
 
-int
+static int
 MainLoop(void)
 {
     // *** TODO: This routine needs more error checking
@@ -1084,7 +1085,7 @@ MainLoop(void)
 }
 
 
-int
+static int
 CollectCmdArgs(char* arg1, int argc, char* const argv[], const char * const ** args)
 {
     // Count the number of additional arguments up until end of args or the marker argument ";"
@@ -1115,7 +1116,7 @@ CollectCmdArgs(char* arg1, int argc, char* const argv[], const char * const ** a
 }
 
 
-void
+static void
 AddSingleArrayArg(const char* arg, CFMutableArrayRef array)
 {
     CFStringRef s = CFStringCreateWithCString(NULL, arg, kCFStringEncodingUTF8);
@@ -1124,7 +1125,7 @@ AddSingleArrayArg(const char* arg, CFMutableArrayRef array)
 }
 
 
-int
+static int
 CollectArrayArgs(char* arg1, int argc, char* const argv[], CFMutableArrayRef array)
 {
     // Let CollectCmdArgs do the grunt work

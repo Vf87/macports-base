@@ -51,7 +51,9 @@ be branched for a given release.
 Once master is to be used for development of the next major version, increase
 its version information to indicate it's moved past the release version by
 setting the patch-level version to 99, e.g. 2.0.99 in
-[`config/macports_version`][macports_version].
+[`config/macports_version`][macports_version]. If master has not yet diverged
+from the release branch, it can use the same version as the release until it
+does.
 
 
 ### Prepare the code for Release ###
@@ -147,6 +149,11 @@ details, see [HOW TO SPECIFY A USER ID in gpg(1)][gpg-user-id] for details.
 
     make dist DISTVER=2.0.0 DISTGPGID=<handle>@macports.org
 
+A signify(1) signature should also be generated for the use of selfupdate
+over http. Specify the path to the secret key in `DISTKEY`.
+
+    make dist DISTVER=2.0.0 DISTKEY=/path/to/macports/macports-base-2024.sec
+
 These tarballs and the checksums are uploaded to the
 https://distfiles.macports.org/MacPorts/ directory. At present, this must be
 done with the help of the infrastructure team.
@@ -187,6 +194,12 @@ Mac OS X 10.6.)
 
 For macOS 10.14 Mojave and later, the pkg should also be submitted for
 notarization after signing:
+
+    xcrun notarytool submit MacPorts-2.0.0-10.14-Mojave.pkg \
+        --apple-id <your-apple-id> --keychain-profile "notarytool" \
+        --wait
+
+or, with altool in older Xcode versions (deprecated method):
 
     xcrun altool --notarize-app --primary-bundle-id org.macports.base \
         --username <your-apple-id> --password @keychain:altool \
@@ -260,6 +273,8 @@ updated with the tag of the release to distribute. This file is read by the
 cron job that makes the code available via rsync. See
 [`jobs/mprsyncup`][mprsyncup] in the macports-infrastructure repository.
 
+The CDN cache for `distfiles.macports.org/MacPorts/RELEASE_URL` may need to
+be purged to make the new version available in a timely manner.
 
 ### Update the branch buildbot uses to generate manpages ###
 
@@ -317,6 +332,10 @@ Using new features introduced by a release should be delayed for 14 days until
 being deployed in the ports tree. This should allow users to upgrade their
 installations to the new release. This delay matches the warning about
 outdated ports tree sources.
+
+The CI configuration for the macports-ports repo should continue to use
+the previous release for the same 14 day period, so that use of new features
+too soon will cause an error.
 
 
 [autogen.sh]: /autogen.sh

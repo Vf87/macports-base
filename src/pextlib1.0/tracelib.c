@@ -47,6 +47,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #if HAVE_SYS_EVENT_H
 #include <sys/event.h>
 #endif
@@ -56,6 +57,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <cregistry/snapshot.h>
 #include <cregistry/portgroup.h>
 #include <cregistry/entry.h>
 #include <registry2.0/registry.h>
@@ -71,24 +73,9 @@
 #include "Pextlib.h"
 
 #include "strlcat.h"
+#include "strlcpy.h"
 
 #ifdef HAVE_TRACEMODE_SUPPORT
-#ifndef HAVE_STRLCPY
-/* Define strlcpy if it's not available. */
-size_t strlcpy(char *dst, const char *src, size_t size);
-size_t strlcpy(char *dst, const char *src, size_t size) {
-    size_t result = strlen(src);
-    if (size > 0) {
-        size_t copylen = size - 1;
-        if (copylen > result) {
-            copylen = result;
-        }
-        memcpy(dst, src, copylen);
-        dst[copylen] = 0;
-    }
-    return result;
-}
-#endif
 
 #ifdef HAVE_PEERPID_LIST
 static bool peerpid_list_enqueue(int sock, pid_t pid);
@@ -98,7 +85,7 @@ static void peerpid_list_walk(bool (*callback)(int sock, pid_t pid, const char *
 #endif /* defined(HAVE_PEERPID_LIST) */
 
 
-static char *name;
+static char *name = NULL;
 static char *sandbox;
 static size_t sandboxLength;
 static char **depends = NULL;
@@ -112,6 +99,15 @@ static int enable_fence = 0;
 static Tcl_Interp *interp;
 
 static mount_cs_cache_t *mount_cs_cache;
+
+typedef struct path_cache_value {
+    char answer;
+} path_cache_value_t;
+/* Querying the SQLite database is surprisingly expensive. Cache all previous
+ * lookups we've done in a hash map to avoid hitting the database multiple
+ * times for the same entries. */
+static Tcl_HashTable path_cache;
+static bool path_cache_initialized = false;
 
 /**
  * Mutex that shall be acquired to exclusively lock checking and acting upon
@@ -340,7 +336,7 @@ static int error2tcl(const char *msg, int err, Tcl_Interp *interp) {
  * \param[in] objv the parameters
  * \return a Tcl return code
  */
-static int TracelibSetNameCmd(Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[]) {
+static int TracelibSetNameCmd(Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     if (objc != 3) {
         Tcl_WrongNumArgs(interp, 2, objv, "number of arguments should be exactly 3");
         return TCL_ERROR;
@@ -369,7 +365,7 @@ static int TracelibSetNameCmd(Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[
  * \param[in] objv the parameters
  * \return a Tcl return code
  */
-static int TracelibSetSandboxCmd(Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[]) {
+static int TracelibSetSandboxCmd(Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     char *src, *dst;
     enum { NORMAL, ACTION, ESCAPE } state = NORMAL;
 
@@ -587,8 +583,8 @@ static void sandbox_violation(int sock UNUSED, const char *path, sandbox_violati
 /**
  * Internal helper function to compare two strings.
  */
-static int pointer_strcmp(const char** a, const char** b) {
-    return strcmp(*a, *b);
+static int pointer_strcasecmp(const char** a, const char** b) {
+    return strcasecmp(*a, *b);
 }
 
 /**
@@ -611,13 +607,23 @@ static int pointer_strcmp(const char** a, const char** b) {
 static void dep_check(int sock, char *path) {
     char *port = 0;
     int fs_cs = -1;
+    int is_new = 0;
     reg_registry *reg;
     reg_entry entry;
     reg_error error;
 
+    Tcl_HashEntry *cache_entry = Tcl_FindHashEntry(&path_cache, path);
+    if (cache_entry) {
+        const char* cache_value = Tcl_GetHashValue(cache_entry);
+        if (cache_value != NULL) {
+            answer(sock, cache_value);
+            return;
+        }
+    }
+
     if (NULL == (reg = registry_for(interp, reg_attached))) {
         ui_error(interp, "%s", Tcl_GetStringResult(interp));
-        /* send unexpected output to make the build fail */
+        /* send unexpected output to make the build fail; do not cache */
         answer(sock, "#");
     }
 
@@ -642,31 +648,47 @@ static void dep_check(int sock, char *path) {
     entry.proc = NULL;
     entry.id = reg_entry_owner_id(reg, path, fs_cs);
     if (entry.id == 0) {
-        /* file isn't known to MacPorts */
+        /* file isn't known to MacPorts, cache this result */
+        Tcl_HashEntry *cache_entry = Tcl_CreateHashEntry(&path_cache, path, &is_new);
+        Tcl_SetHashValue(cache_entry, "?");
+
         answer(sock, "?");
         return;
     }
 
     /* find the port's name to compare with out list */
     if (!reg_entry_propget(&entry, "name", &port, &error)) {
-        /* send unexpected output to make the build fail */
+        /* send unexpected output to make the build fail, but do not cache this result */
         ui_error(interp, "%s", error.description);
         answer(sock, "#");
     }
 
     /* check our list of dependencies; use binary search on sorted list */
     if (NULL != bsearch(&port, depends, dependsLength, sizeof(*depends),
-                        (int (*)(const void*, const void*)) pointer_strcmp)) {
+                        (int (*)(const void*, const void*)) pointer_strcasecmp)) {
         free(port);
+        /* access granted, cache this result */
+        Tcl_HashEntry *cache_entry = Tcl_CreateHashEntry(&path_cache, path, &is_new);
+        Tcl_SetHashValue(cache_entry, "+");
+
         answer(sock, "+");
     } else {
         free(port);
+        /* access denied, cache this result */
+        Tcl_HashEntry *cache_entry = Tcl_CreateHashEntry(&path_cache, path, &is_new);
+        Tcl_SetHashValue(cache_entry, "!");
+
         answer(sock, "!");
     }
 }
 
 static int TracelibOpenSocketCmd(Tcl_Interp *in) {
     struct sockaddr_un sun;
+
+    if (name == NULL) {
+        Tcl_SetResult(in, "tracelib opensocket called without first calling tracelib setname", TCL_STATIC);
+        return TCL_ERROR;
+    }
 
     if (-1 == (sock = socket(PF_LOCAL, SOCK_STREAM, 0))) {
         return error2tcl("socket: ", errno, in);
@@ -680,6 +702,12 @@ static int TracelibOpenSocketCmd(Tcl_Interp *in) {
         close(sock);
         sock = -1;
         return error2tcl("bind: ", err, in);
+    }
+
+    if (-1 == chmod(name, 0777)) {
+        /* We create this socket as root, but want non-root users to be able to
+         * connect. */
+        return error2tcl("chmod: ", errno, in);
     }
 
     if (-1 == listen(sock, SOMAXCONN)) {
@@ -738,6 +766,13 @@ static int TracelibRunCmd(Tcl_Interp *in) {
     else {
         mount_cs_cache = new_mount_cs_cache();
     }
+
+    /* (Re-)initialize path cache */
+    if (path_cache_initialized) {
+        Tcl_DeleteHashTable(&path_cache);
+    }
+    Tcl_InitHashTable(&path_cache, TCL_STRING_KEYS);
+    path_cache_initialized = true;
 
     pthread_mutex_lock(&evloop_mutex);
     /* bring all variables into a defined state so the cleanup code can be
@@ -833,7 +868,7 @@ static int TracelibRunCmd(Tcl_Interp *in) {
                     /* new data is available, and its processing tells us to
                      * close the socket */
                     || (!process_line(res_kevents[i].ident))) {
-                        /* an error occured or process_line suggested closing
+                        /* an error occurred or process_line suggested closing
                          * this socket */
                         close(res_kevents[i].ident);
                         /* closing the socket will automatically remove it from the
@@ -905,7 +940,7 @@ static int TracelibRunCmd(Tcl_Interp *in) {
                     // We found a PID for the remote side
                     peerpid_list_enqueue(s, peer_pid);
                 } else {
-                    // Error occured, process has probably already terminated
+                    // Error occurred, process has probably already terminated
                     close(s);
                     continue;
                 }
@@ -920,7 +955,7 @@ static int TracelibRunCmd(Tcl_Interp *in) {
 error_unlocked:
     pthread_mutex_lock(&evloop_mutex);
 error_locked:
-    // Close remainig sockets to avoid dangling processes
+    // Close remaining sockets to avoid dangling processes
     if (opensockcount > 0) {
 #ifdef HAVE_PEERPID_LIST
         ui_warn(interp, "tracelib: %d open sockets leaking at end of runcmd, closing, sending SIGTERM and SIGKILL", opensockcount);
@@ -950,6 +985,12 @@ error_locked:
 
         free(mount_cs_cache);
         mount_cs_cache = NULL;
+    }
+
+    /* Free path cache. */
+    if (path_cache_initialized) {
+        Tcl_DeleteHashTable(&path_cache);
+        path_cache_initialized = false;
     }
 
     return retval;
@@ -1010,9 +1051,9 @@ static int TracelibCloseSocketCmd(Tcl_Interp *interp UNUSED) {
     return TCL_OK;
 }
 
-static int TracelibSetDeps(Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[]) {
+static int TracelibSetDeps(Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     Tcl_Obj **objects;
-    int length;
+    Tcl_Size length;
     if (objc != 3) {
         Tcl_WrongNumArgs(interp, 2, objv, "number of arguments should be exactly 3");
         return TCL_ERROR;
@@ -1032,31 +1073,33 @@ static int TracelibSetDeps(Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[]) 
     depends = NULL;
     dependsLength = 0;
 
-    /* Allocate memory as needed */
-    if (NULL == (depends = malloc(length * sizeof(*depends)))) {
-        Tcl_SetResult(interp, "memory allocation failed", TCL_STATIC);
-        return TCL_ERROR;
-    }
-    /* Copy all objects over */
-    for (int i = 0; i < length; ++i) {
-        if (NULL == (depends[i] = strdup(Tcl_GetString(objects[i])))) {
-            /* Allocation failed, clean up what we have so far */
-            for (int j = 0; j < i; ++j) {
-                free(depends[j]);
-            }
-            free(depends);
-            depends = NULL;
-            dependsLength = 0;
+    if (length > 0) {
+        /* Allocate memory as needed */
+        if (NULL == (depends = malloc(length * sizeof(*depends)))) {
             Tcl_SetResult(interp, "memory allocation failed", TCL_STATIC);
             return TCL_ERROR;
         }
+        /* Copy all objects over */
+        for (Tcl_Size i = 0; i < length; ++i) {
+            if (NULL == (depends[i] = strdup(Tcl_GetString(objects[i])))) {
+                /* Allocation failed, clean up what we have so far */
+                for (Tcl_Size j = 0; j < i; ++j) {
+                    free(depends[j]);
+                }
+                free(depends);
+                depends = NULL;
+                dependsLength = 0;
+                Tcl_SetResult(interp, "memory allocation failed", TCL_STATIC);
+                return TCL_ERROR;
+            }
 
-        dependsLength++;
+            dependsLength++;
+        }
+
+        /* Sort all dependencies so we can use binary searching */
+        qsort(depends, dependsLength, sizeof(*depends),
+              (int (*)(const void*, const void*)) pointer_strcasecmp);
     }
-
-    /* Sort all dependencies so we can use binary searching */
-    qsort(depends, dependsLength, sizeof(*depends),
-          (int (*)(const void*, const void*)) pointer_strcmp);
 
     return TCL_OK;
 }
@@ -1067,7 +1110,7 @@ static int TracelibEnableFence(Tcl_Interp *interp UNUSED) {
 }
 #endif /* defined(HAVE_TRACEMODE_SUPPORT) */
 
-int TracelibCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[]) {
+int TracelibCmd(ClientData clientData UNUSED, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     int result = TCL_OK;
 
     /* There is no args for commands now. */

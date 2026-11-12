@@ -73,7 +73,7 @@ void delete_portgroup(ClientData clientData) {
  *
  * Opens a portgroup matching the given parameters.
  */
-static int portgroup_open(Tcl_Interp* interp, int objc, Tcl_Obj* CONST objv[]) {
+static int portgroup_open(Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
 	reg_registry* reg = registry_for(interp, reg_attached);
 	if (objc != 7) {
 		Tcl_WrongNumArgs(interp, 1, objv, "open id name version size sha256");
@@ -106,7 +106,7 @@ static int portgroup_open(Tcl_Interp* interp, int objc, Tcl_Obj* CONST objv[]) {
  *
  * Closes a portgroup. It will remain in the registry.
  */
-static int portgroup_close(Tcl_Interp* interp, int objc, Tcl_Obj* CONST objv[]) {
+static int portgroup_close(Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
 	if (objc != 3) {
 		Tcl_WrongNumArgs(interp, 1, objv, "close portgroup");
 		return TCL_ERROR;
@@ -145,7 +145,7 @@ static strategy_type strategies[] = {
  * For each key, can be given an option of -exact, -glob, -regexp or -null to
  * specify the matching strategy; defaults to exact.
  */
-static int portgroup_search(Tcl_Interp* interp, int objc, Tcl_Obj* CONST objv[]) {
+static int portgroup_search(Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
     int i, j;
     reg_registry* reg = registry_for(interp, reg_attached);
     if (reg == NULL) {
@@ -159,7 +159,8 @@ static int portgroup_search(Tcl_Interp* interp, int objc, Tcl_Obj* CONST objv[])
         reg_error error;
         int portgroup_count;
         for (i = 2; i < objc;) {
-            int index, strat_index, val_length;
+            int index, strat_index;
+            Tcl_Size val_length;
             if (Tcl_GetIndexFromObj(interp, objv[i], portgroup_props, "search key",
                         0, &index) != TCL_OK) {
                 return TCL_ERROR;
@@ -270,7 +271,7 @@ static int portgroup_search(Tcl_Interp* interp, int objc, Tcl_Obj* CONST objv[])
 
 typedef struct {
     char* name;
-    int (*function)(Tcl_Interp* interp, int objc, Tcl_Obj* CONST objv[]);
+    int (*function)(Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]);
 } portgroup_cmd_type;
 
 static portgroup_cmd_type portgroup_cmds[] = {
@@ -287,7 +288,7 @@ static portgroup_cmd_type portgroup_cmds[] = {
  * Commands manipulating portgroup entries in the registry. This can be called `registry::portgroup`
  */
 int portgroup_cmd(ClientData clientData UNUSED, Tcl_Interp* interp, int objc,
-        Tcl_Obj* CONST objv[]) {
+        Tcl_Obj* const objv[]) {
     int cmd_index;
     if (objc < 2) {
         Tcl_WrongNumArgs(interp, 1, objv, "cmd ?arg ...?");

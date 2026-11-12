@@ -36,6 +36,10 @@ package require registry2 2.0
 
 namespace eval registry {
 
+variable UI_PREFIX {---> }
+variable tdbc_connection
+trace add variable tdbc_connection read registry::tdbc_connect
+
 ## Decodes a version specifier into its component values. Values will be
 ## returned into the variables named by `version`, `revision`, and `variants`,
 ## with `revision` and `variants` possibly being set to the empty string if none
@@ -61,7 +65,7 @@ proc decode_spec {specifier version revision variants} {
 ## @param [in] port  a registry::entry to check
 ## @param [in] force if true, continue even if there are dependents
 proc check_dependents {port force {action "uninstall/deactivate"}} {
-    global UI_PREFIX
+    variable UI_PREFIX
     set imaged [registry::entry imaged [$port name]]
     set imaged_len [llength $imaged]
     #foreach i $imaged {
@@ -85,16 +89,17 @@ proc check_dependents {port force {action "uninstall/deactivate"}} {
             set deplist $active_deplist
         }
         if { [llength $deplist] > 0 } {
+            global macports::ui_options
             ## User Interaction Question
             # ask if user wants to uninstall a port and thereby break its dependents
-            if {[info exists macports::ui_options(questions_yesno)] && ![string is true -strict $force]} { 
+            if {[info exists ui_options(questions_yesno)] && ![string is true -strict $force]} { 
                 set portulist [list]
                 foreach depport $deplist {
                     lappend portulist [$depport name]@[$depport version]_[$depport revision]
                     #registry::entry close $depport
                 }
                 ui_msg "Note: It is not recommended to uninstall/deactivate a port that has dependents as it breaks the dependents."
-                set retvalue [$macports::ui_options(questions_yesno) "The following ports will break:" "breakDeps" $portulist {n} 0]
+                set retvalue [$ui_options(questions_yesno) "The following ports will break:" "breakDeps" $portulist {n} 0 "[string totitle $action] [$port name] anyway?"]
                 if {$retvalue == 0} {
                     set force "yes"
                 } else {
@@ -127,8 +132,14 @@ proc run_target {port target options} {
     }
 
     if {![catch {set mport [mportopen_installed [$port name] [$port version] [$port revision] [$port variants] $options]}]} {
-        if {[catch {set result [mportexec $mport $target]} result] || $result != 0} {
+        set failed 0
+        if {[catch {mportexec $mport $target} result]} {
             ui_debug $::errorInfo
+            set failed 1
+        } elseif {$result != 0} {
+            set failed 1
+        }
+        if {$failed} {
             catch {mportclose $mport}
             ui_warn "Failed to execute portfile from registry for $portspec"
             switch $target {
@@ -161,6 +172,32 @@ proc run_target {port target options} {
         ui_warn "Failed to open Portfile from registry for $portspec"
     }
     return 0
+}
+
+## Create and configure a tdbc connection to the registry
+proc tdbc_connect {args} {
+    package require tdbc::sqlite3
+    variable tdbc_connection
+    set reg_path [::file join ${::macports::registry.path} registry registry.db]
+    set tdbc_connection [tdbc::sqlite3::connection new $reg_path]
+    trace remove variable tdbc_connection read registry::tdbc_connect
+    set stmt [$tdbc_connection prepare {PRAGMA foreign_keys = ON}]
+    $stmt execute
+    $stmt close
+}
+
+## Delete the given dependencies for the given entry
+## @return   true if successful, false otherwise
+proc delete_dependencies {entry deplist} {
+    variable tdbc_connection
+    set stmt [$tdbc_connection prepare {DELETE FROM dependencies WHERE id = :id AND name = :name}]
+    set id [$entry id]
+    $tdbc_connection transaction {
+        foreach name $deplist {
+            $stmt execute
+        }
+    }
+    $stmt close
 }
 
 }

@@ -5,7 +5,7 @@ include ../../Mk/macports.autoconf.mk
 
 INSTALLDIR=	${prefix}
 TOPSRCDIR=	../..
-SCRIPTS=	portmirror portindex port
+SCRIPTS=	portmirror portindex port port-tclsh
 
 edit = sed -e 's,@TCLSH\@,$(TCLSH),g'
 
@@ -35,13 +35,13 @@ distclean: clean
 	rm -f Makefile
 
 install: all mkdirs
-	$(INSTALL) -d -o "${DSTUSR}" -g "${DSTGRP}" -m "${DSTMODE}" "${DESTDIR}${INSTALLDIR}/bin"
-	$(INSTALL) -d -o "${DSTUSR}" -g "${DSTGRP}" -m "${DSTMODE}" "${DESTDIR}${INSTALLDIR}/var/macports"
-	$(INSTALL)    -o "${DSTUSR}" -g "${DSTGRP}" -m 555 port portindex portmirror "${DESTDIR}${INSTALLDIR}/bin/"
-	$(LN_S) -f port "${DESTDIR}${INSTALLDIR}/bin/portf"
-	$(LN_S) -f "${TCLSH}" "${DESTDIR}${INSTALLDIR}/bin/port-tclsh"
+	$(INSTALL) -d -o "${DSTUSR}" -g "${DSTGRP}" -m "${DSTMODE}" "${DESTDIR}${bindir}"
+	$(INSTALL) -d -o "${DSTUSR}" -g "${DSTGRP}" -m "${DSTMODE}" "${DESTDIR}${localstatedir}/macports"
+	$(INSTALL)    -o "${DSTUSR}" -g "${DSTGRP}" -m 555 port portindex portmirror port-tclsh "${DESTDIR}${bindir}/"
+	$(LN_S) -f port "${DESTDIR}${bindir}/portf"
 ifeq (darwin,@OS_PLATFORM@)
-ifneq (8,@OS_MAJOR@)
-	chmod -h 555 "${DESTDIR}${INSTALLDIR}/bin/portf" "${DESTDIR}${INSTALLDIR}/bin/port-tclsh"
+	chmod -h 555 "${DESTDIR}${bindir}/portf"
 endif
-endif
+
+codesign:: port-tclsh
+	../codesign.sh $?

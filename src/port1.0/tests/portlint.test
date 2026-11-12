@@ -6,14 +6,91 @@ namespace import tcltest::*
 set pwd [file dirname [file normalize $argv0]]
 
 source ../port_test_autoconf.tcl
-package require macports 1.0
+source $macports::autoconf::top_srcdir/src/macports1.0/tests/test_setup.tcl
 
-array set ui_options {}
-#set ui_options(ports_debug)   yes
-#set ui_options(ports_verbose) yes
-mportinit ui_options
-
+package require portutil
 package require portlint 1.0
+package require portlint_run
+
+test verify_checksum_format_md5 {
+    Test that we properly verify an MD5 checksum
+} -body {
+    set checksum "9f70ecc1095ff10df81be6b5f218328d"
+    if {[portlint::verify_checksum_format "md5" $checksum] != 1} {
+        return "FAIL: did not verify $checksum as MD5"
+    }
+    return "Verify MD5 successful"
+} -result "Verify MD5 successful"
+
+test verify_checksum_format_sha1 {
+    Test that we properly verify an SHA1 checksum
+} -body {
+    set checksum "5560df60ff202ca8b8c3dcf51ad650b78e859261"
+    if {[portlint::verify_checksum_format "sha1" $checksum] != 1} {
+        return "FAIL: did not verify $checksum as SHA1"
+    }
+    return "Verify SHA1 successful"
+} -result "Verify SHA1 successful"
+
+test verify_checksum_format_rmd160 {
+    Test that we properly verify an rmd160 checksum
+} -body {
+    set checksum "5aee5d12fe536e2e288e9f1daafd84f1bc17c3e6"
+    if {[portlint::verify_checksum_format "rmd160" $checksum] != 1} {
+        return "FAIL: did not verify $checksum as rmd160"
+    }
+    return "Verify rmd160 successful"
+} -result "Verify rmd160 successful"
+
+test verify_checksum_format_sha256 {
+    Test that we properly verify an SHA256 checksum
+} -body {
+    set checksum "2f686816f2a80e8efcc4ef40ac4e898d27ce4205a61ee422d56f8c5e8b46612e"
+    if {[portlint::verify_checksum_format "sha256" $checksum] != 1} {
+        return "FAIL: did not verify $checksum as sha256"
+    }
+    return "Verify sha256 successful"
+} -result "Verify sha256 successful"
+
+test verify_checksum_format_blake3 {
+    Test that we properly verify a BLAKE3 checksum
+} -body {
+    set checksum "bb25f9a3571c6a1580e33ea64b34124c93fed104092497a91450c21a66ee57e3"
+    if {[portlint::verify_checksum_format "blake3" $checksum] != 1} {
+        return "FAIL: did not verify $checksum as blake3"
+    }
+    return "Verify blake3 successful"
+} -result "Verify blake3 successful"
+
+test verify_checksum_format_blake3_too_short {
+    Test that we reject a BLAKE3 checksum that is too short
+} -body {
+    set checksum "bb25f9a3571c6a1580e33ea64b34124c93fed104092497a91450c21a66ee57"
+    if {[portlint::verify_checksum_format "blake3" $checksum] != 0} {
+        return "FAIL: did not reject short blake3 checksum"
+    }
+    return "Reject short blake3 successful"
+} -result "Reject short blake3 successful"
+
+test verify_checksum_format_blake3_non_hex {
+    Test that we reject a BLAKE3 checksum containing non-hex characters
+} -body {
+    set checksum "bb25f9a3571c6a1580e33ea64b34124c93fed104092497a91450c21a66ee57zz"
+    if {[portlint::verify_checksum_format "blake3" $checksum] != 0} {
+        return "FAIL: did not reject non-hex blake3 checksum"
+    }
+    return "Reject non-hex blake3 successful"
+} -result "Reject non-hex blake3 successful"
+
+test verify_unknown_checksum_format {
+    Test that we respond as expected to an unknown checksum format
+} -body {
+    set checksum "thisisnotread"
+    if {[portlint::verify_checksum_format "lol22" $checksum] != -1} {
+        return "FAIL: did not respond as expected to an unknown checksum"
+    }
+    return "Verify unknown successful"
+} -result "Verify unknown successful"
 
 test test_lint_checksum_type_list {
     Verify that we get no warnings if we pass in the list of recommended
@@ -32,6 +109,7 @@ test test_lint_checksum_type_list_missing_recommended {
     Verify that we are warned about a missing recommended field in the
     list of checksums types passed to lint_checksum_type_list.
 } -body {
+    set ports_lint_nitpick yes
     set preferred_checksum_types [list rmd160 sha256]
     set results [portlint::lint_checksum_type_list $preferred_checksum_types]
 
@@ -39,8 +117,8 @@ test test_lint_checksum_type_list_missing_recommended {
         return "FAIL: unexpected results: no results returned"
     }
 
-    if {[lsearch -regexp $results {size}] ==  -1} {
-        return "FAIL: no mention of the missing size field"
+    if {[lsearch -glob $results *size*] == -1} {
+        return "FAIL: no mention of the missing size field: $results"
     }
 
     return "lint_checksum_type_list_missing_recommended passed"
@@ -56,11 +134,11 @@ test test_lint_checksum_type_list_deprecated_md5 {
         return "FAIL: unexpectedly encountered no results"
     }
 
-    if {[lsearch -regexp $results {insecure.+md5}] == -1} {
+    if {[lsearch -glob $results *insecure*md5*] == -1} {
         return "FAIL: expecting deprecation warning for using MD5 solely"
     }
 
-    if {[lsearch -regexp $results {missing.+recommended}] == -1} {
+    if {[lsearch -glob $results *missing*recommended*] == -1} {
         return "FAIL: expecting warnings about missing recommended checksum\
                 types"
     }
@@ -78,11 +156,11 @@ test test_lint_checksum_type_list_deprecated_sha1 {
         return "FAIL: unexpected results: no results returned"
     }
 
-    if {[lsearch -regexp $results {insecure.+sha1}] == -1} {
+    if {[lsearch -glob $results *insecure*sha1*] == -1} {
         return "FAIL: no mention of the deprecated sha1 field"
     }
 
-    if {[lsearch -regexp $results {missing.+recommended}] == -1} {
+    if {[lsearch -glob $results *missing*recommended*] == -1} {
         return "FAIL: expecting warnings about missing recommended checksum\
                 types"
     }
@@ -94,19 +172,86 @@ test test_lint_checksum_type_list_mixed {
     Verify that we are warned about a missing recommended field when
     multiple fields are specified
 } -body {
-    set preferred_checksum_types [list md5 rmd160 sha256]
+    set preferred_checksum_types [list md5 sha256 size]
     set results [portlint::lint_checksum_type_list $preferred_checksum_types]
 
     if {[llength $results] == 0} {
         return "FAIL: unexpected results: no results returned"
     }
 
-    if {[lsearch -regexp $results {missing.+size}] == -1} {
-        return "FAIL: no mention of missing recommended size field: $results"
+    if {[lsearch -glob $results *missing*rmd160*] == -1} {
+        return "FAIL: no mention of missing recommended rmd160 field: $results"
     }
 
     return "lint_checksum_type_list_mixed passed"
 } -result "lint_checksum_type_list_mixed passed"
+
+test test_lint_checksum_type_list_blake3_size {
+    Verify that a blake3+size line produces no warnings: blake3 is secure on
+    its own and must not be nagged toward rmd160/sha256.
+} -body {
+    set preferred_checksum_types [list blake3 size]
+    set results [portlint::lint_checksum_type_list $preferred_checksum_types]
+
+    if {[llength $results] > 0} {
+        return "FAIL: unexpected results: $results"
+    }
+
+    return "lint_checksum_type_list_blake3_size passed"
+} -result "lint_checksum_type_list_blake3_size passed"
+
+test test_lint_checksum_type_list_blake3_only {
+    Verify that blake3 on its own is not flagged as insecure and is not nagged
+    toward other recommended types.
+} -body {
+    set preferred_checksum_types [list blake3]
+    set results [portlint::lint_checksum_type_list $preferred_checksum_types]
+
+    if {[lsearch -glob $results *insecure*] != -1} {
+        return "FAIL: blake3 unexpectedly flagged as insecure: $results"
+    }
+
+    if {[lsearch -glob $results {missing recommended checksum type: rmd160}] != -1 ||
+            [lsearch -glob $results {missing recommended checksum type: sha256}] != -1 ||
+            [lsearch -glob $results {missing recommended checksum type: blake3}] != -1} {
+        return "FAIL: blake3 unexpectedly nagged toward another type: $results"
+    }
+
+    return "lint_checksum_type_list_blake3_only passed"
+} -result "lint_checksum_type_list_blake3_only passed"
+
+test test_lint_checksum_type_list_traditional {
+    Verify that the traditional rmd160+sha256+size combination still produces
+    no warnings, in particular no new nag toward blake3.
+} -body {
+    set preferred_checksum_types [list rmd160 sha256 size]
+    set results [portlint::lint_checksum_type_list $preferred_checksum_types]
+
+    if {[llength $results] > 0} {
+        return "FAIL: unexpected results: $results"
+    }
+
+    return "lint_checksum_type_list_traditional passed"
+} -result "lint_checksum_type_list_traditional passed"
+
+test test_lint_checksum_type_list_md5_still_insecure {
+    Verify that md5 on its own is still flagged as insecure and still warns
+    about missing recommended checksum types.
+} -body {
+    set preferred_checksum_types [list md5]
+    set results [portlint::lint_checksum_type_list $preferred_checksum_types]
+
+    if {[lsearch -glob $results *insecure*md5*] == -1} {
+        return "FAIL: expecting insecure warning for md5 on its own: $results"
+    }
+
+    if {[lsearch -glob $results *missing*recommended*] == -1} {
+        return "FAIL: expecting warnings about missing recommended checksum\
+                types: $results"
+    }
+
+    return "lint_checksum_type_list_md5_still_insecure passed"
+} -result "lint_checksum_type_list_md5_still_insecure passed"
 
 test test_lint_checksum_basic {
     Verify linting the most basic checksum that is still valid
@@ -127,13 +272,13 @@ test test_lint_checksum_basic {
     }
 
     if {[llength $warnings] > 0} {
-        if {[lsearch -regexp $warnings {missing.+recommended}] == -1} {
+        if {[lsearch -glob $warnings *missing*recommended*] == -1} {
             return "FAIL: missing expected warning about recommended fields"
         }
 
         if {[llength [lsearch -inline \
-                              -regexp \
-                              -all $warnings {missing.+recommended}]] != 2} {
+                              -glob \
+                              -all $warnings *missing*recommended*]] != 2} {
             return "FAIL: less warnings than expected: $warnings"
         }
     } else {
@@ -162,15 +307,15 @@ test test_lint_checksum_basic_w_filename {
     }
 
     if {[llength $warnings] > 0} {
-        if {[lsearch -regexp $warnings \
-                                {doop\.tgz.+missing.+recommended}] == -1} {
+        if {[lsearch -glob $warnings \
+                                *doop.tgz*missing*recommended*] == -1} {
             return "FAIL: missing expected warning about recommended fields"
         }
 
         if {[llength [lsearch -inline \
-                              -regexp \
+                              -glob \
                               -all $warnings \
-                              {doop\.tgz.+missing.+recommended}]] != 2} {
+                              *doop.tgz*missing*recommended*]] != 2} {
             return "FAIL: less warnings than expected: $warnings"
         }
     } else {
@@ -260,7 +405,7 @@ test test_lint_checksum_bad_checksum_type {
         return "FAIL: unexpectedly encountered no errors"
     }
 
-    if {[lsearch -regexp $errors {invalid.+sha300}] == -1} {
+    if {[lsearch -glob $errors *invalid*sha300*] == -1} {
         return "FAIL: no error present about the invalid checksum type: $errors"
     }
 
@@ -291,7 +436,7 @@ test test_lint_checksum_bad_checksum_type_w_filename {
         return "FAIL: unexpectedly encountered no errors"
     }
 
-    if {[lsearch -regexp $errors {invalid.+field}] == -1} {
+    if {[lsearch -glob $errors *invalid*field*] == -1} {
         return "FAIL: no error present about the invalid checksum type: $errors"
     }
 
@@ -312,15 +457,15 @@ test test_lint_checksum_multi_basic {
         return "FAIL: invalid results returned: empty list"
     }
 
-    if {[lsearch -regexp $results {file1\.tar.+recommended}] == -1} {
+    if {[lsearch -glob $results *file1.tar*recommended*] == -1} {
         return "FAIL: no expected warnings for file1: $results"
     }
 
-    if {[lsearch -regexp $results {file2\.tar.+recommended}] == -1} {
+    if {[lsearch -glob $results *file2.tar*recommended*] == -1} {
         return "FAIL: no expected warnings for file2: $results"
     }
 
-    if {[lsearch -regexp $results {file3\.tar.+recommended}] == -1} {
+    if {[lsearch -glob $results *file3.tar*recommended*] == -1} {
         return "FAIL: no expected warnings for file3: $results"
     }
 
@@ -336,7 +481,7 @@ test test_lint_checksum_multi_normal_w_filename {
                     rmd160  880690684f35730351dac2cdfd928a7610f69cce
                     size    34554
                   file2.tar
-                    sha256  2f686816f2a80e3lfn23jknf23jknp8d27ce4205a61ee422d56f8c5e8b4609e4
+                    sha256  2f686816f2a80e31fa23bcaf23bca98d27ce4205a61ee422d56f8c5e8b4609e4
                     rmd160  5aee5d12fe536e2e288e9f1daafd84f1bc17c3e6
                     size    25644
                   file3.tar
@@ -382,7 +527,7 @@ test test_lint_checksum_malformed_sha256 {
         return "FAIL: unexpectedly encountered errors: $errors"
     }
 
-    if {[lsearch -regexp $errors {checksum.+sha256.+invalid}] == -1} {
+    if {[lsearch -glob $errors *checksum*sha256*invalid*] == -1} {
         return "FAIL: missing error about invalid checksum: $errors"
     }
 
@@ -407,12 +552,37 @@ test test_lint_checksum_malformed_rmd160 {
         return "FAIL: unexpectedly encountered errors: $errors"
     }
 
-    if {[lsearch -regexp $errors {checksum.+rmd160.+invalid}] == -1} {
+    if {[lsearch -glob $errors *checksum*rmd160*invalid*] == -1} {
         return "FAIL: missing error about invalid checksum: $errors"
     }
 
     return "lint_checksum_malformed_rmd160 passed"
 } -result "lint_checksum_malformed_rmd160 passed"
+
+test test_lint_checksum_malformed_blake3 {
+    Verify that we catch malformed BLAKE3 checksums
+} -body {
+    set checksum "checksum blake3 thisisnotcorrect"
+
+    set results [portlint::lint_checksum $checksum]
+
+    if {[llength $results] == 0} {
+        return "FAIL: invalid results returned: empty list"
+    }
+
+    set errors [lindex $results 0]
+    set warnings [lindex $results 1]
+
+    if {[llength $errors] == 0} {
+        return "FAIL: unexpectedly encountered no errors"
+    }
+
+    if {[lsearch -glob $errors *checksum*blake3*invalid*] == -1} {
+        return "FAIL: missing error about invalid checksum: $errors"
+    }
+
+    return "lint_checksum_malformed_blake3 passed"
+} -result "lint_checksum_malformed_blake3 passed"
 
 test test_lint_checksum_malformed_size {
     Verify that we catch malformed size checksum fields
@@ -432,7 +602,7 @@ test test_lint_checksum_malformed_size {
         return "FAIL: unexpectedly encountered errors: $errors"
     }
 
-    if {[lsearch -regexp $errors {checksum.+size.+invalid}] == -1} {
+    if {[lsearch -glob $errors *checksum*size*invalid*] == -1} {
         return "FAIL: missing error about invalid checksum: $errors"
     }
 
@@ -458,7 +628,7 @@ test test_lint_checksum_multi_malformed {
         return "FAIL: unexpectedly encountered errors: $errors"
     }
 
-    if {[lsearch -regexp $errors {checksum.+sha256.+invalid}] == -1} {
+    if {[lsearch -glob $errors *checksum*sha256*invalid*] == -1} {
         return "FAIL: missing error about invalid checksum: $errors"
     }
 
@@ -489,11 +659,11 @@ test test_lint_checksum_multi_malformed_w_filename_1 {
         return "FAIL: unexpectedly encountered no warnings"
     }
 
-    if {[lsearch -regexp $errors {somefile.+checksum.+sha256.+invalid}] == -1} {
+    if {[lsearch -glob $errors *somefile*checksum*sha256*invalid*] == -1} {
         return "FAIL: missing error about invalid checksum: $errors"
     }
 
-    if {[lsearch -regexp $warnings {missing.+recommended.+rmd160}] == -1} {
+    if {[lsearch -glob $warnings *missing*recommended*rmd160*] == -1} {
         return "FAIL: missing expected warning about missing recommended type"
     }
 
@@ -528,11 +698,11 @@ test test_lint_checksum_multi_malformed_w_filename_2 {
         return "FAIL: unexpectedly encountered no warnings"
     }
 
-    if {[lsearch -regexp $errors {somefile.+checksum.+sha256.+invalid}] == -1} {
+    if {[lsearch -glob $errors *somefile*checksum*sha256*invalid*] == -1} {
         return "FAIL: missing error about invalid checksum: $errors"
     }
 
-    if {[lsearch -regexp $warnings {somefile.+missing.+recommended.+rmd160}] == -1} {
+    if {[lsearch -glob $warnings *somefile*missing*recommended*rmd160*] == -1} {
         return "FAIL: missing warnings about missing recommended type"
     }
 
@@ -563,11 +733,11 @@ test test_lint_checksum_multi_adjacent_invalid_w_filename {
         return "FAIL: unexpectedly encountered errors: $errors"
     }
 
-    if {[lsearch -regexp $errors {invalid.+field.+nope}] == -1} {
+    if {[lsearch -glob $errors *invalid*field*nope*] == -1} {
         return "FAIL: missing error about invalid checksum field: $errors"
     }
 
-    if {[lsearch -regexp $warnings {somefile.+missing.+recommended.+rmd160}] == -1} {
+    if {[lsearch -glob $warnings *somefile*missing*recommended*rmd160*] == -1} {
         return "FAIL: missing warnings about missing recommended type: rmd160"
     }
 
@@ -597,11 +767,11 @@ test test_lint_checksum_invalid_ending {
         return "FAIL: unexpectedly encountered no warnings"
     }
 
-    if {[lsearch -regexp $errors {invalid.+field.+bunny}] == -1} {
+    if {[lsearch -glob $errors *invalid*field*bunny*] == -1} {
         return "FAIL: missing error about invalid checksum field: $errors"
     }
 
-    if {[lsearch -regexp $warnings {missing.+recommended}] == -1} {
+    if {[lsearch -glob $warnings *missing*recommended*] == -1} {
         return "FAIL: no warnings about missing recommended types: $warnings"
     }
 
@@ -633,15 +803,110 @@ test test_lint_checksum_invalid_ending_w_filename {
         return "FAIL: unexpectedly encountered no warnings"
     }
 
-    if {[lsearch -regexp $errors {invalid.+bunny}] == -1} {
+    if {[lsearch -glob $errors *invalid*bunny*] == -1} {
         return "FAIL: missing error about invalid field: $errors"
     }
 
-    if {[lsearch -regexp $warnings {file1.+missing.+recommended}] == -1} {
+    if {[lsearch -glob $warnings *file1*missing*recommended*] == -1} {
         return "FAIL: no warnings about missing recommended types: $warnings"
     }
 
     return "lint_checksum_invalid_ending_w_filename passed"
 } -result "lint_checksum_invalid_ending_w_filename passed"
+
+test test_lint_platforms_succeeds_with_darwin_freebsd {
+    Verify that platforms is accepted with darwin freebsd
+} -body {
+    set platforms "darwin freebsd"
+    set name "test"
+    set subport "test"
+    set results [portlint::lint_platforms $platforms]
+    set err_results [lindex $results 0]
+    set warn_results [lindex $results 1]
+
+    if {[llength $warn_results] > 0} {
+        return "FAIL: unexpected error results"
+    }
+    if {[llength $err_results] > 0} {
+        return "FAIL: unexpected error results"
+    }
+    return "lint_platforms_darwin_freebsd passed"
+} -result "lint_platforms_darwin_freebsd passed"
+
+test test_lint_platforms_succeeds_with_freebsd {
+    Verify that platforms is accepted with freebsd
+} -body {
+    set platforms "freebsd"
+    set name "test"
+    set subport "test"
+    set results [portlint::lint_platforms $platforms]
+    set err_results [lindex $results 0]
+    set warn_results [lindex $results 1]
+
+    if {[llength $warn_results] > 0} {
+        return "FAIL: unexpected error results"
+    }
+    if {[llength $err_results] > 0} {
+        return "FAIL: unexpected error results"
+    }
+    return "lint_platforms_freebsd passed"
+} -result "lint_platforms_freebsd passed"
+
+test test_lint_platforms_fails_with_msdos {
+    Verify that platforms fails with msdos as this is unknown
+} -body {
+    set platforms "msdos"
+    set name "test"
+    set subport "test"
+    set results [portlint::lint_platforms $platforms]
+    set err_results [lindex $results 0]
+    set warn_results [lindex $results 1]
+
+    if {[llength $err_results] == 0} {
+        return "FAIL: unexpected empty error list"
+    }
+    if {"Unknown" ni [lindex $err_results 0]} {
+        return "FAIL: unexpected results: $results"
+    }
+    return "lint_platforms_msdos_fails passed"
+} -result "lint_platforms_msdos_fails passed"
+
+test test_lint_platforms_fails_with_darwin {
+    Verify that platforms fails with darwin as this is the default
+} -body {
+    set platforms "darwin"
+    set name "test"
+    set subport "test"
+    set results [portlint::lint_platforms $platforms]
+    set err_results [lindex $results 0]
+    set warn_results [lindex $results 1]
+
+    if {[llength $warn_results] == 0} {
+        return "FAIL: unexpected empty warning list"
+    }
+    if {"default" ni [lindex $warn_results 0]} {
+        return "FAIL: unexpected results: $results"
+    }
+    return "lint_platforms_darwin_fails passed"
+} -result "lint_platforms_darwin_fails passed"
+
+test test_lint_platforms_succeeds_with_subports {
+    Verify that platforms succeeds with subports
+} -body {
+    set platforms "darwin"
+    set name "test"
+    set subport "subport"
+    set results [portlint::lint_platforms $platforms]
+    set err_results [lindex $results 0]
+    set warn_results [lindex $results 1]
+
+    if {[llength $warn_results] > 0} {
+        return "FAIL: unexpected error results"
+    }
+    if {[llength $err_results] > 0} {
+        return "FAIL: unexpected error results"
+    }
+    return "test_lint_platforms_succeeds_with_subports passed"
+} -result "test_lint_platforms_succeeds_with_subports passed"
 
 cleanupTests
